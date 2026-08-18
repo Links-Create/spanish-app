@@ -215,7 +215,7 @@ if menu == "📖 学習レッスン (教科書・解説)":
         
         last_saved = get_last_lesson_idx()
         if last_saved > 0 and st.session_state.current_lesson_idx == last_saved:
-            st.info(f"📍 **前回の続き（第 {last_saved + 1} 課）から再開しています")
+            st.info(f"📍 前回の続き（第 {last_saved + 1} 課）から再開しています")
         
         c_cat, c_les = st.columns(2)
         with c_cat:
@@ -256,7 +256,7 @@ if menu == "📖 学習レッスン (教科書・解説)":
 
         st.divider()
         st.subheader(f"💡 第 {st.session_state.current_lesson_idx + 1} 課: {card['lesson_title']}")
-        st.caption(f"カテゴリー: ")
+        st.caption(f"カテゴリー: {card['category']}")
         
         st.markdown(f'''
         <div style="background-color:#f8fafc; border-left:5px solid #0284c7; padding:18px; border-radius:8px; font-size:1.1rem; line-height:1.8; color:#1e293b;">
@@ -266,7 +266,7 @@ if menu == "📖 学習レッスン (教科書・解説)":
         
         st.write("")
         st.markdown("### ✍️ 理解度チェック問題")
-        st.write(f"**")
+        st.write(f"問題: {card['title']}")
         
         disp_sent = card["sentence"].replace("[___]", "＿＿＿＿")
         st.markdown(f'<div style="background-color:#f1f5f9; padding:14px; border-radius:6px; font-size:1.25rem; font-weight:bold;">{disp_sent}</div>', unsafe_allow_html=True)
@@ -276,10 +276,10 @@ if menu == "📖 学習レッスン (教科書・解説)":
         for i, opt in enumerate(options):
             if cols[i].button(f"{i+1}. {opt}", key=f"less_opt_{i}_{card['id']}", use_container_width=True):
                 if opt.strip().lower() == card["correct_answer"].strip().lower():
-                    st.success(f"🎉 **正解です！ （正解: **）")
+                    st.success(f"🎉 正解です！ (正解: {card['correct_answer']})")
                 else:
-                    st.error(f"❌ **不正解です。 （正解は: **）")
-                st.info(f"💡 **解説**: {card['explanation']}")
+                    st.error(f"❌ 不正解です。 (正解は: {card['correct_answer']})")
+                st.info(f"💡 解説: {card['explanation']}")
 
         st.divider()
         b_prev, b_spacer, b_next = st.columns(3)
@@ -475,11 +475,11 @@ elif menu == "🔍 スペイン語辞書 (単語・例文検索)":
         
     dict_results = get_dict_df(search_query, sel_cat)
     
-    st.caption(f"検索結果: **{len(dict_results)}** 件の単語が見つかりました")
+    st.caption(f"検索結果: {len(dict_results)} 件の単語が見つかりました")
     st.divider()
     
     if len(dict_results) == 0:
-        st.info(f"「**{search_query}**」に一致する単語が見つかりませんでした。別のキーワード（スペイン語または日本語）でお試しください。")
+        st.info(f"「{search_query}」に一致する単語が見つかりませんでした。別のキーワード（スペイン語または日本語）でお試しください。")
     else:
         for _, entry in dict_results.iterrows():
             with st.container():
@@ -515,7 +515,7 @@ elif menu == "📝 今日の復習・クイズ (SRS)":
         st.success("🎉 おめでとうございます！本日の復習はすべて完了しました！")
         st.balloons()
     else:
-        st.caption(f"本日の復習待ちカード：残り **{len(due_cards)}** 問（全 {len(cards_df)} 課中）")
+        st.caption(f"本日の復習待ちカード：残り {len(due_cards)} 問（全 {len(cards_df)} 課中）")
         if "card_index" not in st.session_state or st.session_state.card_index >= len(due_cards):
             st.session_state.card_index = 0
             st.session_state.answered = False
@@ -536,7 +536,7 @@ elif menu == "📝 今日の復習・クイズ (SRS)":
                 st.session_state.show_hint = True
                 st.rerun()
         else:
-            st.info(f"💡 **ヒント**: {card['hint']}")
+            st.info(f"💡 ヒント: {card['hint']}")
             
         st.write("")
         if not st.session_state.answered:
@@ -549,9 +549,9 @@ elif menu == "📝 今日の復習・クイズ (SRS)":
                     st.rerun()
         else:
             if st.session_state.is_correct:
-                st.success(f"🎉 **正解！ （正解: **）")
+                st.success(f"🎉 正解！ (正解: {card['correct_answer']})")
             else:
-                st.error(f"❌ **不正解！ （あなたの選択: {st.session_state.selected_opt} ／ 正解: **）")
+                st.error(f"❌ 不正解！ (あなたの選択: {st.session_state.selected_opt} ／ 正解: {card['correct_answer']})")
                 
             st.markdown(f'''
             <div style="background-color:#fff7ed; border-left:4px solid #f97316; padding:12px; border-radius:6px;">
