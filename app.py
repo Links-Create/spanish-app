@@ -319,11 +319,8 @@ if menu == "📖 文法レッスン (全113課)":
         st.subheader(f"💡 第 {st.session_state.current_lesson_idx + 1} 課: {card['lesson_title']}")
         st.caption(f"カテゴリー: {card['category']}")
         
-        st.markdown(f'''
-        <div style="background-color:#f8fafc; border-left:5px solid #0284c7; padding:18px; border-radius:8px; font-size:1.1rem; line-height:1.8; color:#1e293b;">
-            {card['content']}
-        </div>
-        ''', unsafe_allow_html=True)
+        lesson_content_html = f'<div style="background-color:#f8fafc; border-left:5px solid #0284c7; padding:18px; border-radius:8px; font-size:1.1rem; line-height:1.8; color:#1e293b;">{card["content"]}</div>'
+        st.markdown(lesson_content_html, unsafe_allow_html=True)
         
         st.write("")
         st.markdown("### ✍️ 理解度チェック問題")
@@ -401,19 +398,20 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
         if v_card["repetitions"] >= 4:
             status_label = f"🏆 定着済み (Lv{v_card['repetitions']} / 間隔:{v_card['interval_days']}日)"
 
-        st.markdown(f'''
-        <div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0284c7; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <span style="background-color:#e0f2fe; color:#0369a1; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{v_card['category']}</span>
-                <span style="font-size:0.9rem; color:#64748b;">{status_label}</span>
-            </div>
-            <div style="text-align:center; padding:20px 0;">
-                <h1 style="font-size:3.2rem; color:#0f172a; margin:0; font-weight:800; letter-spacing:0.02em;">{v_card['word']}</h1>
-                <div style="font-size:1.25rem; color:#64748b; margin-top:8px;">【 {v_card['reading']} 】</div>
-                <div style="font-size:1.0rem; color:#0284c7; font-weight:bold; margin-top:4px;">{v_card['pos']}</div>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
+        card_front_html = (
+            '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0284c7; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
+            f'<span style="background-color:#e0f2fe; color:#0369a1; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{v_card["category"]}</span>'
+            f'<span style="font-size:0.9rem; color:#64748b;">{status_label}</span>'
+            '</div>'
+            '<div style="text-align:center; padding:20px 0;">'
+            f'<h1 style="font-size:3.2rem; color:#0f172a; margin:0; font-weight:800; letter-spacing:0.02em;">{v_card["word"]}</h1>'
+            f'<div style="font-size:1.25rem; color:#64748b; margin-top:8px;">【 {v_card["reading"]} 】</div>'
+            f'<div style="font-size:1.0rem; color:#0284c7; font-weight:bold; margin-top:4px;">{v_card["pos"]}</div>'
+            '</div>'
+            '</div>'
+        )
+        st.markdown(card_front_html, unsafe_allow_html=True)
 
         if not st.session_state.vocab_revealed:
             if st.button("💡 意味と例文をめくる (答えを見る)", use_container_width=True, type="primary"):
@@ -422,30 +420,25 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
         else:
             conj_section = ""
             if pd.notna(v_card.get("conjugation")) and str(v_card.get("conjugation")).strip():
-                conj_section = f'''
-                <hr style="border:none; border-top:1px solid #bfdbfe; margin:14px 0;">
-                <div style="background-color:#eff6ff; border:1px solid #bfdbfe; border-left:6px solid #2563eb; padding:14px 18px; border-radius:8px;">
-                    <h4 style="color:#1d4ed8; margin-top:0; margin-bottom:8px;">🔄 人称変化（全6人称）/ 性数変化:</h4>
-                    <div style="font-size:1.05rem; line-height:1.9; color:#1e293b;">
-                        {v_card['conjugation']}
-                    </div>
-                </div>
-                '''
+                conj_section = (
+                    '<hr style="border:none; border-top:1px solid #bfdbfe; margin:14px 0;">'
+                    '<div style="background-color:#eff6ff; border:1px solid #bfdbfe; border-left:6px solid #2563eb; padding:14px 18px; border-radius:8px;">'
+                    '<h4 style="color:#1d4ed8; margin-top:0; margin-bottom:8px;">🔄 人称変化（全6人称）/ 性数変化:</h4>'
+                    f'<div style="font-size:1.05rem; line-height:1.9; color:#1e293b;">{v_card["conjugation"]}</div>'
+                    '</div>'
+                )
 
-            st.markdown(f'''
-            <div style="background-color:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:20px; border-radius:10px; margin-bottom:16px;">
-                <h4 style="color:#b45309; margin-top:0;">📖 日本語の意味・語義:</h4>
-                <div style="font-size:1.15rem; line-height:1.8; color:#1e293b;">
-                    {v_card['meanings']}
-                </div>
-                {conj_section}
-                <hr style="border:none; border-top:1px solid #fde68a; margin:14px 0;">
-                <h4 style="color:#0284c7; margin-top:0;">💬 実際の会話例文:</h4>
-                <div style="font-size:1.05rem; line-height:1.8; color:#1e293b;">
-                    {v_card['examples']}
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
+            reveal_html = (
+                '<div style="background-color:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:20px; border-radius:10px; margin-bottom:16px;">'
+                '<h4 style="color:#b45309; margin-top:0;">📖 日本語の意味・語義:</h4>'
+                f'<div style="font-size:1.15rem; line-height:1.8; color:#1e293b;">{v_card["meanings"]}</div>'
+                f'{conj_section}'
+                '<hr style="border:none; border-top:1px solid #fde68a; margin:14px 0;">'
+                '<h4 style="color:#0284c7; margin-top:0;">💬 実際の会話例文:</h4>'
+                f'<div style="font-size:1.05rem; line-height:1.8; color:#1e293b;">{v_card["examples"]}</div>'
+                '</div>'
+            )
+            st.markdown(reveal_html, unsafe_allow_html=True)
 
             st.markdown("##### 🧠 記憶の定着度（自己評価）を選択してください:")
             v_col1, v_col2, v_col3, v_col4 = st.columns(4)
@@ -524,32 +517,30 @@ elif menu == "🔍 単語帳＆実用辞書 (220語+)":
 
                 conj_entry_section = ""
                 if pd.notna(entry.get("conjugation")) and str(entry.get("conjugation")).strip():
-                    conj_entry_section = f'''
-                    <div style="margin-top:10px; padding:12px; background-color:#eff6ff; border-radius:6px; font-size:0.95rem; line-height:1.8; color:#1e293b;">
-                        <strong style="color:#1d4ed8;">🔄 人称変化（全6人称）/ 性数変化:</strong><br>
-                        {entry['conjugation']}
-                    </div>
-                    '''
+                    conj_entry_section = (
+                        '<div style="margin-top:10px; padding:12px; background-color:#eff6ff; border-radius:6px; font-size:0.95rem; line-height:1.8; color:#1e293b;">'
+                        f'<strong style="color:#1d4ed8;">🔄 人称変化（全6人称）/ 性数変化:</strong><br>{entry["conjugation"]}'
+                        '</div>'
+                    )
 
-                st.markdown(f'''
-                <div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #f59e0b; padding:18px; border-radius:10px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-                    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
-                        <span style="font-size:1.6rem; font-weight:bold; color:#1e293b;">{entry['word']}</span>
-                        <span style="font-size:1.05rem; color:#64748b; margin-left:12px;">【{entry['reading']}】</span>
-                        <span style="background-color:#fef3c7; color:#92400e; padding:3px 10px; border-radius:12px; font-size:0.85rem; font-weight:bold; margin-left:10px;">{entry['pos']}</span>
-                        <span style="background-color:{badge_bg}; color:{badge_color}; padding:3px 10px; border-radius:12px; font-size:0.85rem; font-weight:bold; margin-left:auto;">{badge_text}</span>
-                    </div>
-                    <div style="margin-top:10px; padding:12px; background-color:#fffbeb; border-radius:6px; font-size:1.05rem; line-height:1.7; color:#334155;">
-                        <strong style="color:#b45309;">📖 意味・語義:</strong><br>
-                        {entry['meanings']}
-                    </div>
-                    {conj_entry_section}
-                    <div style="margin-top:12px; padding:12px; background-color:#f8fafc; border-radius:6px; font-size:1.0rem; line-height:1.8; color:#1e293b;">
-                        <strong style="color:#0284c7;">💬 実用例文:</strong><br>
-                        {entry['examples']}
-                    </div>
-                </div>
-                ''', unsafe_allow_html=True)
+                card_entry_html = (
+                    '<div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #f59e0b; padding:18px; border-radius:10px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">'
+                    '<div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">'
+                    f'<span style="font-size:1.6rem; font-weight:bold; color:#1e293b;">{entry["word"]}</span>'
+                    f'<span style="font-size:1.05rem; color:#64748b; margin-left:12px;">【{entry["reading"]}】</span>'
+                    f'<span style="background-color:#fef3c7; color:#92400e; padding:3px 10px; border-radius:12px; font-size:0.85rem; font-weight:bold; margin-left:10px;">{entry["pos"]}</span>'
+                    f'<span style="background-color:{badge_bg}; color:{badge_color}; padding:3px 10px; border-radius:12px; font-size:0.85rem; font-weight:bold; margin-left:auto;">{badge_text}</span>'
+                    '</div>'
+                    '<div style="margin-top:10px; padding:12px; background-color:#fffbeb; border-radius:6px; font-size:1.05rem; line-height:1.7; color:#334155;">'
+                    f'<strong style="color:#b45309;">📖 意味・語義:</strong><br>{entry["meanings"]}'
+                    '</div>'
+                    f'{conj_entry_section}'
+                    '<div style="margin-top:12px; padding:12px; background-color:#f8fafc; border-radius:6px; font-size:1.0rem; line-height:1.8; color:#1e293b;">'
+                    f'<strong style="color:#0284c7;">💬 実用例文:</strong><br>{entry["examples"]}'
+                    '</div>'
+                    '</div>'
+                )
+                st.markdown(card_entry_html, unsafe_allow_html=True)
 
 # 4. 📐 文法公式＆活用マスター
 elif menu == "📐 文法公式＆活用マスター":
@@ -712,11 +703,8 @@ elif menu == "📝 文法復習クイズ (SRS)":
             else:
                 st.error(f"❌ 不正解！ (あなたの選択: {st.session_state.selected_opt} ／ 正解: {card['correct_answer']})")
                 
-            st.markdown(f'''
-            <div style="background-color:#fff7ed; border-left:4px solid #f97316; padding:12px; border-radius:6px;">
-                <strong>💡 解説:</strong><br>{card['explanation']}
-            </div>
-            ''', unsafe_allow_html=True)
+            exp_html = f'<div style="background-color:#fff7ed; border-left:4px solid #f97316; padding:12px; border-radius:6px;"><strong>💡 解説:</strong><br>{card["explanation"]}</div>'
+            st.markdown(exp_html, unsafe_allow_html=True)
             
             st.write("")
             st.markdown("##### 🧠 記憶の定着度（自己評価）を選択してください:")
