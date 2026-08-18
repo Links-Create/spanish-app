@@ -119,13 +119,15 @@ def init_dict_db():
             pass
     cursor.execute("SELECT COUNT(*) FROM dictionary WHERE examples LIKE '%単語分解%'")
     breakdown_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM dictionary WHERE examples LIKE '%【%'")
+    katakana_count = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM dictionary WHERE conjugation IS NOT NULL AND conjugation != ''")
     valid_conj_count = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM dictionary")
     count = cursor.fetchone()[0]
     conn.close()
 
-    if count < len(DICTIONARY_DATA) or valid_conj_count < 100 or breakdown_count < 100 or "repetitions" not in cols:
+    if count < len(DICTIONARY_DATA) or valid_conj_count < 100 or breakdown_count < 100 or katakana_count < 100 or "repetitions" not in cols:
         import generate_113_lessons
         generate_113_lessons.seed_dictionary_database()
 
@@ -184,10 +186,12 @@ def init_chunks_db():
         mistake_count INTEGER DEFAULT 0
     )
     ''')
+    cursor.execute("SELECT COUNT(*) FROM chunks WHERE example LIKE '%【%'")
+    chk_katakana_count = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM chunks")
     count = cursor.fetchone()[0]
     conn.close()
-    if count < len(CHUNKS_DATA):
+    if count < len(CHUNKS_DATA) or chk_katakana_count < len(CHUNKS_DATA):
         import generate_113_lessons
         generate_113_lessons.seed_chunks_database()
 
