@@ -233,6 +233,12 @@ def calculate_sm2(repetitions, interval_days, ease_factor, quality):
 st.sidebar.title("🇪🇸 Español SRS")
 st.sidebar.caption("全113課文法 & 220語+単語忘却曲線マスター")
 
+# --- 全テーブルの初期化とスキーマ自動同期 ---
+init_user_state()
+init_cards_db()
+init_dict_db()
+init_logs_db()
+
 menu = st.sidebar.radio(
     "メニューを選択",
     [
