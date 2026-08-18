@@ -2,10 +2,10 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import datetime
-from datetime import date, timedelta
 import os
 import re
 import time
+import json
 from dictionary_data import DICTIONARY_DATA
 from chunks_data import CHUNKS_DATA
 from pop_culture_data import POP_CULTURE_DATA
@@ -318,8 +318,118 @@ def init_logs_db():
             cursor.execute("ALTER TABLE study_logs ADD COLUMN item_type TEXT DEFAULT 'grammar'")
         except Exception:
             pass
+
+    # 学習時間記録テーブル (日付ごとの学習秒数・問題数・カテゴリ)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS study_time_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        study_date TEXT NOT NULL,
+        seconds REAL NOT NULL,
+        category TEXT NOT NULL,
+        item_count INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL
+    )
+    ''')
     conn.commit()
     conn.close()
+
+def record_study_time(seconds, category="general", item_count=1):
+    try:
+        init_logs_db()
+        today_str = date.today().isoformat()
+        now_str = datetime.datetime.now().isoformat()
+        sec = max(0.5, float(seconds))
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+        INSERT INTO study_time_logs (study_date, seconds, category, item_count, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ''', (today_str, sec, category, item_count, now_str))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+def get_user_study_stats():
+    init_logs_db()
+    today_str = date.today().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # 1. 本日の学習時間 (秒) & 問題数
+    cursor.execute("SELECT SUM(seconds), SUM(item_count) FROM study_time_logs WHERE study_date = ?", (today_str,))
+    t_row = cursor.fetchone()
+    today_sec = float(t_row[0]) if t_row and t_row[0] else 0.0
+    today_items = int(t_row[1]) if t_row and t_row[1] else 0
+    
+    # 2. 累計学習時間 (秒) & 累計問題数
+    cursor.execute("SELECT SUM(seconds), SUM(item_count) FROM study_time_logs")
+    tot_row = cursor.fetchone()
+    total_sec = float(tot_row[0]) if tot_row and tot_row[0] else 0.0
+    total_items = int(tot_row[1]) if tot_row and tot_row[1] else 0
+    
+    # 3. 連続学習日数 (ストリーク)
+    cursor.execute("SELECT DISTINCT study_date FROM study_time_logs ORDER BY study_date DESC")
+    dates_rows = [r[0] for r in cursor.fetchall()]
+    conn.close()
+    
+    streak = 0
+    if dates_rows:
+        cur_d = date.today()
+        if dates_rows[0] == cur_d.isoformat():
+            streak = 1
+            check_d = cur_d - timedelta(days=1)
+            for d_str in dates_rows[1:]:
+                if d_str == check_d.isoformat():
+                    streak += 1
+                    check_d -= timedelta(days=1)
+                else:
+                    break
+        elif dates_rows[0] == (cur_d - timedelta(days=1)).isoformat():
+            streak = 1
+            check_d = cur_d - timedelta(days=2)
+            for d_str in dates_rows[1:]:
+                if d_str == check_d.isoformat():
+                    streak += 1
+                    check_d -= timedelta(days=1)
+                else:
+                    break
+                    
+    return {
+        "today_seconds": today_sec,
+        "today_items": today_items,
+        "total_seconds": total_sec,
+        "total_items": total_items,
+        "streak_days": streak
+    }
+
+def get_daily_study_time_df(days=7):
+    init_logs_db()
+    today = date.today()
+    date_list = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query('''
+    SELECT study_date, SUM(seconds) as total_seconds, SUM(item_count) as total_items
+    FROM study_time_logs
+    WHERE study_date >= ?
+    GROUP BY study_date
+    ''', conn, params=(date_list[0],))
+    conn.close()
+    
+    res = []
+    lookup = {row["study_date"]: row for _, row in df.iterrows()}
+    for d_str in date_list:
+        d_obj = datetime.date.fromisoformat(d_str)
+        day_label = d_obj.strftime("%m/%d")
+        if d_str in lookup:
+            m = round(lookup[d_str]["total_seconds"] / 60.0, 1)
+            cnt = int(lookup[d_str]["total_items"])
+        else:
+            m = 0.0
+            cnt = 0
+        res.append({"日付": day_label, "学習時間 (分)": m, "完了問数": cnt})
+    return pd.DataFrame(res)
 
 def get_logs_df():
     init_logs_db()
@@ -333,6 +443,77 @@ def get_logs_df():
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
     return df
+
+def export_progress_json():
+    conn = sqlite3.connect(DB_PATH)
+    data = {
+        "version": "1.0",
+        "exported_at": datetime.datetime.now().isoformat(),
+        "cards": pd.read_sql_query("SELECT id, lesson_title, repetitions, interval_days, ease_factor, next_review_date, mistake_count FROM cards", conn).to_dict("records"),
+        "dictionary": pd.read_sql_query("SELECT id, word, repetitions, interval_days, ease_factor, next_review_date, mistake_count FROM dictionary", conn).to_dict("records"),
+        "chunks": pd.read_sql_query("SELECT id, chunk, repetitions, interval_days, ease_factor, next_review_date, mistake_count FROM chunks", conn).to_dict("records"),
+        "study_logs": pd.read_sql_query("SELECT card_id, rating, is_correct, reviewed_at, item_type FROM study_logs", conn).to_dict("records"),
+        "study_time_logs": pd.read_sql_query("SELECT study_date, seconds, category, item_count, created_at FROM study_time_logs", conn).to_dict("records")
+    }
+    conn.close()
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+def import_progress_json(json_str):
+    try:
+        data = json.loads(json_str)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # 1. cards の進捗復元
+        if "cards" in data:
+            for item in data["cards"]:
+                cursor.execute('''
+                UPDATE cards 
+                SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
+                WHERE lesson_title = ? OR id = ?
+                ''', (item.get("repetitions", 0), item.get("interval_days", 0), item.get("ease_factor", 2.5), item.get("next_review_date"), item.get("mistake_count", 0), item.get("lesson_title"), item.get("id")))
+                
+        # 2. dictionary の進捗復元
+        if "dictionary" in data:
+            for item in data["dictionary"]:
+                cursor.execute('''
+                UPDATE dictionary 
+                SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
+                WHERE word = ? OR id = ?
+                ''', (item.get("repetitions", 0), item.get("interval_days", 0), item.get("ease_factor", 2.5), item.get("next_review_date"), item.get("mistake_count", 0), item.get("word"), item.get("id")))
+
+        # 3. chunks の進捗復元
+        if "chunks" in data:
+            for item in data["chunks"]:
+                cursor.execute('''
+                UPDATE chunks 
+                SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
+                WHERE chunk = ? OR id = ?
+                ''', (item.get("repetitions", 0), item.get("interval_days", 0), item.get("ease_factor", 2.5), item.get("next_review_date"), item.get("mistake_count", 0), item.get("chunk"), item.get("id")))
+
+        # 4. study_logs の復元
+        if "study_logs" in data:
+            cursor.execute("DELETE FROM study_logs")
+            for item in data["study_logs"]:
+                cursor.execute('''
+                INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                VALUES (?, ?, ?, ?, ?)
+                ''', (item.get("card_id", 0), item.get("rating", 4), item.get("is_correct", 1), item.get("reviewed_at"), item.get("item_type", "grammar")))
+
+        # 5. study_time_logs の復元
+        if "study_time_logs" in data:
+            cursor.execute("DELETE FROM study_time_logs")
+            for item in data["study_time_logs"]:
+                cursor.execute('''
+                INSERT INTO study_time_logs (study_date, seconds, category, item_count, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ''', (item.get("study_date"), item.get("seconds", 0.0), item.get("category", "general"), item.get("item_count", 1), item.get("created_at")))
+
+        conn.commit()
+        conn.close()
+        return True, "🎉 進捗データが正常に復元されました！"
+    except Exception as e:
+        return False, f"復元中にエラーが発生しました: {str(e)}"
 
 def calculate_sm2(repetitions, interval_days, ease_factor, quality):
     q_mapped = {1: 1, 2: 3, 3: 4, 4: 5}[quality]
@@ -429,6 +610,24 @@ init_chunks_db()
 init_pop_culture_db()
 init_logs_db()
 
+# --- サイドバー モチベーションステータス ---
+study_stats = get_user_study_stats()
+streak_d = study_stats["streak_days"]
+today_m = int(study_stats["today_seconds"] // 60)
+today_s = int(study_stats["today_seconds"] % 60)
+total_h = round(study_stats["total_seconds"] / 3600.0, 1)
+streak_text = f"🔥 {streak_d}日連続学習中！" if streak_d > 0 else "🌱 今日からスタート！"
+
+st.sidebar.markdown(f'''
+<div style="background-color:#f0fdf4; border:1px solid #bbf7d0; border-left:5px solid #16a34a; padding:12px; border-radius:8px; margin-bottom:14px;">
+    <div style="font-weight:bold; color:#15803d; font-size:0.95rem; margin-bottom:4px;">{streak_text}</div>
+    <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#334155;">
+        <span>⏱️ 今日: <b>{today_m}分{today_s}秒</b></span>
+        <span>⏳ 累計: <b>{total_h}時間</b></span>
+    </div>
+</div>
+''', unsafe_allow_html=True)
+
 menu = st.sidebar.radio(
     "メニューを選択",
     [
@@ -520,7 +719,17 @@ if menu == "📖 文法レッスン (全113課)":
         cols = st.columns(len(options))
         for i, opt in enumerate(options):
             if cols[i].button(f"{i+1}. {opt}", key=f"less_opt_{i}_{card['id']}", use_container_width=True):
-                if opt.strip().lower() == card["correct_answer"].strip().lower():
+                is_cor = (opt.strip().lower() == card["correct_answer"].strip().lower())
+                record_study_time(3.0, "grammar", 1)
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute('''
+                INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                VALUES (?, ?, ?, ?, 'grammar')
+                ''', (int(card["id"]), 4 if is_cor else 1, 1 if is_cor else 0, datetime.datetime.now().isoformat()))
+                conn.commit()
+                conn.close()
+                if is_cor:
                     st.success(f"🎉 正解です！ (正解: {card['correct_answer']})")
                 else:
                     st.error(f"❌ 不正解です。 (正解は: {card['correct_answer']})")
@@ -611,6 +820,15 @@ elif menu == "🔀 全113課 インターリービング文法シャッフル (�
                     if is_cor:
                         st.session_state.interleave_score += 1
                     st.session_state.interleave_is_correct = is_cor
+                    record_study_time(st.session_state.interleave_elapsed, "interleave", 1)
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    c.execute('''
+                    INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                    VALUES (?, ?, ?, ?, 'interleave')
+                    ''', (int(q_card["id"]), 4 if is_cor else 1, 1 if is_cor else 0, datetime.datetime.now().isoformat()))
+                    conn.commit()
+                    conn.close()
                     st.rerun()
         else:
             if st.session_state.interleave_is_correct:
@@ -699,12 +917,30 @@ elif menu == "⚡ 瞬間パターンプラクティス (瞬間西作文)":
             b_col1, b_col2 = st.columns([1.5, 1])
             with b_col1:
                 if st.button("⭕️ 言えた！（次の問題へ ➡️）", type="primary", use_container_width=True):
+                    record_study_time(st.session_state.drill_elapsed, "pattern_practice", 1)
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    c.execute('''
+                    INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                    VALUES (0, 4, 1, ?, 'pattern_practice')
+                    ''', (datetime.datetime.now().isoformat(),))
+                    conn.commit()
+                    conn.close()
                     st.session_state.drill_idx += 1
                     st.session_state.drill_revealed = False
                     st.session_state.drill_start_time = time.time()
                     st.rerun()
             with b_col2:
                 if st.button("❌ 詰まった（もう一度復習）", use_container_width=True):
+                    record_study_time(st.session_state.drill_elapsed, "pattern_practice", 1)
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    c.execute('''
+                    INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                    VALUES (0, 1, 0, ?, 'pattern_practice')
+                    ''', (datetime.datetime.now().isoformat(),))
+                    conn.commit()
+                    conn.close()
                     st.session_state.drill_revealed = False
                     st.session_state.drill_start_time = time.time()
                     st.rerun()
@@ -826,6 +1062,7 @@ elif menu == "🧩 最重要チャンクマスター (50選 / Smart SRS)":
             st.markdown(chunk_smart_fb, unsafe_allow_html=True)
             
             def submit_chunk_record(reps, interval, ef, next_date, mistakes_delta, rating, is_correct):
+                record_study_time(st.session_state.chunk_elapsed_sec, "chunk", 1)
                 conn = sqlite3.connect(DB_PATH)
                 c = conn.cursor()
                 new_m = max(0, int(c_card["mistake_count"]) + mistakes_delta)
@@ -834,6 +1071,10 @@ elif menu == "🧩 最重要チャンクマスター (50選 / Smart SRS)":
                 SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
                 WHERE id = ?
                 ''', (reps, interval, ef, next_date, new_m, int(c_card["id"])))
+                c.execute('''
+                INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                VALUES (?, ?, ?, ?, 'chunk')
+                ''', (int(c_card["id"]), rating, is_correct, datetime.datetime.now().isoformat()))
                 conn.commit()
                 conn.close()
                 st.session_state.chunk_idx += 1
@@ -1070,6 +1311,7 @@ elif menu == "🗂️ 単語フラッシュカード (Smart Timer SRS)":
 
             def submit_vocab_record(reps, interval, ef, next_date, mistakes_delta, rating, is_correct):
                 init_logs_db()
+                record_study_time(elapsed_sec, "word", 1)
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
                 new_mistakes = max(0, int(v_card["mistake_count"]) + mistakes_delta)
@@ -1391,6 +1633,7 @@ elif menu == "📝 文法復習セッション (SRS)":
             
             def submit_grammar_record(reps, interval, ef, next_date, mistakes_delta, rating, is_correct):
                 init_logs_db()
+                record_study_time(elapsed_quiz_sec, "grammar_srs", 1)
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
                 new_mistakes = max(0, int(card["mistake_count"]) + mistakes_delta)
@@ -1431,13 +1674,20 @@ elif menu == "📝 文法復習セッション (SRS)":
 
 # 10. 📊 学習ダッシュボード
 elif menu == "📊 学習ダッシュボード":
-    st.title("📊 学習ダッシュボード (文法・単語・チャンク総合)")
+    st.title("📊 学習ダッシュボード (文法・単語・学習時間 総合)")
     cards_df = get_cards_df()
     dict_df = get_dict_df()
     chunks_df = get_chunks_df()
     
     today_str = date.today().isoformat()
     
+    # 学習時間・ストリーク情報
+    stats = get_user_study_stats()
+    streak_days = stats["streak_days"]
+    t_min = int(stats["today_seconds"] // 60)
+    t_sec = int(stats["today_seconds"] % 60)
+    tot_hrs = round(stats["total_seconds"] / 3600.0, 1)
+
     # 文法指標
     total_cards = len(cards_df)
     due_cards = len(cards_df[cards_df["next_review_date"] <= today_str])
@@ -1454,15 +1704,28 @@ elif menu == "📊 学習ダッシュボード":
     total_chunks = len(chunks_df)
     mastered_chunks = len(chunks_df[chunks_df["repetitions"] >= 4])
 
+    st.subheader("🔥 モチベーション ＆ 学習時間")
+    st_col1, st_col2, st_col3, st_col4 = st.columns(4)
+    st_col1.metric("🔥 連続学習ストリーク", f"{streak_days} 日間", delta="毎日継続中！" if streak_days > 0 else "今日からスタート")
+    st_col2.metric("⏱️ 今日の学習時間", f"{t_min}分 {t_sec}秒", delta=f"{stats['today_items']} 問完了")
+    st_col3.metric("⏳ 累計総学習時間", f"{tot_hrs} 時間", delta=f"総計 {stats['total_items']} 回想起")
+    st_col4.metric("📌 本日の総復習待ち", f"{due_cards + due_words} 件")
+
+    st.divider()
+
+    st.subheader("⏱️ 過去7日間の学習時間推移 (分)")
+    daily_time_df = get_daily_study_time_df(7)
+    st.bar_chart(daily_time_df.set_index("日付")["学習時間 (分)"])
+
+    st.divider()
+
     st.subheader("📚 総合マスター進捗")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("📖 文法カリキュラム", f"{total_cards} 課", delta=f"{mastered_cards} 課 定着" if mastered_cards > 0 else "学習中")
     col2.metric("🗂️ 単語マスター", f"{total_words} 語", delta=f"{mastered_words} 語 定着" if mastered_words > 0 else "学習中")
     col3.metric("🧩 定型チャンク", f"{total_chunks} 個", delta=f"{mastered_chunks} 個 定着" if mastered_chunks > 0 else "学習中")
-    col4.metric("📌 本日の総復習待ち", f"{due_cards + due_words} 件")
     
-    st.divider()
-    
+    st.write("")
     st.subheader("🎯 単語・チャンクの暗記定着度 (Smart SRS ステータス)")
     v_stat_col1, v_stat_col2, v_stat_col3 = st.columns(3)
     v_stat_col1.metric("🌱 未学習の単語", f"{unseen_words} 語")
@@ -1575,38 +1838,105 @@ elif menu == "📚 カリキュラム・単語一覧":
                         st.error("単語・読み・意味は必須です。")
 
     with tab4:
-        st.subheader("CSV エクスポート / 初期化")
+        st.subheader("💾 学習進捗の完全バックアップ ＆ 復元 (JSON)")
+        st.caption("Rebootや端末移行時でも安心！あなたの単語・文法・チャンクの定着レベル、復習間隔、学習時間ログを1つのファイルとして保存・復元できます。")
+        
+        bk_col1, bk_col2 = st.columns(2)
+        with bk_col1:
+            progress_json_str = export_progress_json()
+            st.download_button(
+                label="💾 学習進捗データをダウンロード (JSON)",
+                data=progress_json_str,
+                file_name=f"spanish_learning_progress_{date.today().isoformat()}.json",
+                mime="application/json",
+                type="primary",
+                use_container_width=True
+            )
+        with bk_col2:
+            uploaded_file = st.file_uploader("📥 バックアップJSONから進捗を復元", type=["json"], key="uploader_restore_json")
+            if uploaded_file is not None:
+                if st.button("🔄 復元を実行する", use_container_width=True):
+                    content = uploaded_file.getvalue().decode("utf-8")
+                    ok, msg = import_progress_json(content)
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                        
+        st.divider()
+        st.subheader("📊 CSV エクスポート")
         csv_cards = cards_df.to_csv(index=False).encode('utf-8_sig')
         csv_dict = dict_df.to_csv(index=False).encode('utf-8_sig')
         
         c_dl1, c_dl2 = st.columns(2)
         with c_dl1:
-            st.download_button(label="📥 全113課の文法カリキュラムをCSVダウンロード", data=csv_cards, file_name="spanish_grammar_113.csv", mime="text/csv")
+            st.download_button(label="📥 全113課の文法カリキュラムをCSVダウンロード", data=csv_cards, file_name="spanish_grammar_113.csv", mime="text/csv", use_container_width=True)
         with c_dl2:
-            st.download_button(label="📥 全221語の単語帳をCSVダウンロード", data=csv_dict, file_name="spanish_vocabulary_221.csv", mime="text/csv")
-        
-        st.write("")
-        st.divider()
-        st.subheader("🔄 公式初期データの完全リセット")
-        st.caption("文法113課および単語221語の公式データを初期状態に再ロードします。")
-        if st.button("⚠️ 全113課・全単語の公式データを再初期化する", key="btn_reset_all_data"):
-            import generate_113_lessons
-            generate_113_lessons.seed_database()
-            generate_113_lessons.seed_dictionary_database()
-            st.success("✅ 全113課カリキュラムおよび全221単語データを再初期化しました！")
-            st.rerun()
+            st.download_button(label="📥 全221語の単語帳をCSVダウンロード", data=csv_dict, file_name="spanish_vocabulary_221.csv", mime="text/csv", use_container_width=True)
 
-# 8. 📈 学習ログ・履歴分析
+# 12. 📈 学習ログ・履歴分析
 elif menu == "📈 学習ログ・履歴分析":
     st.title("📈 学習ログ・履歴分析")
-    logs_df = get_logs_df()
+    st.caption("日々の学習時間推移、正答率、学習カテゴリーの内訳を分析します。")
+
+    stats = get_user_study_stats()
+    streak_days = stats["streak_days"]
+    t_min = int(stats["today_seconds"] // 60)
+    t_sec = int(stats["today_seconds"] % 60)
+    tot_hrs = round(stats["total_seconds"] / 3600.0, 1)
+
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("🔥 連続学習ストリーク", f"{streak_days} 日間")
+    s2.metric("⏱️ 今日の学習時間", f"{t_min}分 {t_sec}秒", delta=f"{stats['today_items']} 問完了")
+    s3.metric("⏳ 累計総学習時間", f"{tot_hrs} 時間", delta=f"総計 {stats['total_items']} 回想起")
     
+    logs_df = get_logs_df()
+    if len(logs_df) > 0:
+        total_ans = len(logs_df)
+        total_cor = int(logs_df["is_correct"].sum())
+        acc = round(total_cor / total_ans * 100, 1)
+        s4.metric("🎯 累計正答率", f"{acc}%", delta=f"{total_cor}/{total_ans} 問正解")
+    else:
+        s4.metric("🎯 累計正答率", "-- %")
+
+    st.divider()
+    
+    st.subheader("⏱️ 過去7日間の日別学習時間推移")
+    daily_time_df = get_daily_study_time_df(7)
+    st.bar_chart(daily_time_df.set_index("日付")["学習時間 (分)"])
+    st.dataframe(daily_time_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    st.subheader("📊 正誤ログ・回答数推移")
     if len(logs_df) == 0:
-        st.info("まだ学習履歴がありません。「単語フラッシュカード」や「文法復習クイズ」で学習を開始すると、ここにグラフが表示されます。")
+        st.info("まだ学習ログがありません。「単語フラッシュカード」や「インターリービング」「パターンプラクティス」で学習を開始すると、ここにグラフが表示されます。")
     else:
         logs_df["date"] = pd.to_datetime(logs_df["reviewed_at"]).dt.date
         daily_stats = logs_df.groupby("date").agg(total_reviews=("id", "count"), correct_count=("is_correct", "sum")).reset_index()
         daily_stats["accuracy"] = (daily_stats["correct_count"] / daily_stats["total_reviews"] * 100).round(1)
-        st.subheader("📅 日別の学習量と正答率")
         st.line_chart(daily_stats.set_index("date")[["total_reviews", "accuracy"]])
-        st.dataframe(daily_stats.rename(columns={"date": "日付", "total_reviews": "総復習数", "correct_count": "正解数", "accuracy": "正答率 (%)"}), use_container_width=True, hide_index=True)
+        st.dataframe(daily_stats.rename(columns={"date": "日付", "total_reviews": "総想起数", "correct_count": "正解数", "accuracy": "正答率 (%)"}), use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("💾 学習進捗のバックアップ＆復元")
+    bk_c1, bk_c2 = st.columns(2)
+    with bk_c1:
+        st.download_button(
+            label="💾 現在の学習進捗を保存 (JSON)",
+            data=export_progress_json(),
+            file_name=f"spanish_progress_backup_{date.today().isoformat()}.json",
+            mime="application/json",
+            type="primary",
+            use_container_width=True
+        )
+    with bk_c2:
+        up_file = st.file_uploader("📥 バックアップから復元", type=["json"], key="logs_restore_json")
+        if up_file is not None and st.button("復元を実行 🔄", key="btn_logs_restore"):
+            ok, msg = import_progress_json(up_file.getvalue().decode("utf-8"))
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)

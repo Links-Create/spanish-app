@@ -1282,9 +1282,8 @@ def seed_database():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("DROP TABLE IF EXISTS cards")
     cursor.execute('''
-    CREATE TABLE cards (
+    CREATE TABLE IF NOT EXISTS cards (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT NOT NULL,
         lesson_title TEXT NOT NULL,
@@ -1308,24 +1307,37 @@ def seed_database():
     now_str = datetime.datetime.now().isoformat()
 
     for item in LESSONS_DATA:
-        cursor.execute('''
-        INSERT INTO cards (category, lesson_title, content, title, sentence, options, correct_answer, hint, explanation, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
-        ''', (
-            item["category"],
-            item["lesson_title"],
-            item["content"],
-            item["title"],
-            item["sentence"],
-            item["options"],
-            item["correct_answer"],
-            item["hint"],
-            item["explanation"],
-            today_str,
-            now_str
-        ))
+        cursor.execute("SELECT id FROM cards WHERE lesson_title = ?", (item["lesson_title"],))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute('''
+            UPDATE cards 
+            SET category = ?, content = ?, title = ?, sentence = ?, options = ?, correct_answer = ?, hint = ?, explanation = ?
+            WHERE id = ?
+            ''', (item["category"], item["content"], item["title"], item["sentence"], item["options"], item["correct_answer"], item["hint"], item["explanation"], row[0]))
+        else:
+            cursor.execute('''
+            INSERT INTO cards (category, lesson_title, content, title, sentence, options, correct_answer, hint, explanation, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
+            ''', (
+                item["category"],
+                item["lesson_title"],
+                item["content"],
+                item["title"],
+                item["sentence"],
+                item["options"],
+                item["correct_answer"],
+                item["hint"],
+                item["explanation"],
+                today_str,
+                now_str
+            ))
 
     conn.commit()
+    cursor.execute("SELECT COUNT(*) FROM cards")
+    count = cursor.fetchone()[0]
+    print(f"Successfully synced {count} lessons into {DB_PATH} (User progress preserved)")
+    conn.close()
 
 def seed_dictionary_database():
     from dictionary_data import DICTIONARY_DATA
@@ -1333,9 +1345,8 @@ def seed_dictionary_database():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("DROP TABLE IF EXISTS dictionary")
     cursor.execute('''
-    CREATE TABLE dictionary (
+    CREATE TABLE IF NOT EXISTS dictionary (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         word TEXT NOT NULL,
         reading TEXT NOT NULL,
@@ -1358,34 +1369,42 @@ def seed_dictionary_database():
 
     for item in DICTIONARY_DATA:
         conj_text = item[6] if len(item) > 6 else ""
-        cursor.execute('''
-        INSERT INTO dictionary (word, reading, pos, meanings, examples, category, conjugation, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
-        ''', (
-            item[0],
-            item[1],
-            item[2],
-            item[3],
-            item[4],
-            item[5],
-            conj_text,
-            today_str,
-            now_str
-        ))
+        cursor.execute("SELECT id FROM dictionary WHERE word = ?", (item[0],))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute('''
+            UPDATE dictionary 
+            SET reading = ?, pos = ?, meanings = ?, examples = ?, category = ?, conjugation = ?
+            WHERE id = ?
+            ''', (item[1], item[2], item[3], item[4], item[5], conj_text, row[0]))
+        else:
+            cursor.execute('''
+            INSERT INTO dictionary (word, reading, pos, meanings, examples, category, conjugation, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
+            ''', (
+                item[0],
+                item[1],
+                item[2],
+                item[3],
+                item[4],
+                item[5],
+                conj_text,
+                today_str,
+                now_str
+            ))
 
     conn.commit()
     cursor.execute("SELECT COUNT(*) FROM dictionary")
     count = cursor.fetchone()[0]
-    print(f"Successfully seeded {count} words with conjugations into {DB_PATH}")
+    print(f"Successfully synced {count} words into {DB_PATH} (User progress preserved)")
     conn.close()
 
 def seed_chunks_database():
     from chunks_data import CHUNKS_DATA
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("DROP TABLE IF EXISTS chunks")
     cursor.execute('''
-    CREATE TABLE chunks (
+    CREATE TABLE IF NOT EXISTS chunks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         chunk TEXT NOT NULL,
         reading TEXT NOT NULL,
@@ -1403,24 +1422,32 @@ def seed_chunks_database():
 
     today_str = datetime.date.today().isoformat()
     for item in CHUNKS_DATA:
-        cursor.execute('''
-        INSERT INTO chunks (chunk, reading, category, meaning, example, grammar_point, repetitions, interval_days, ease_factor, next_review_date, mistake_count)
-        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0)
-        ''', (item[0], item[1], item[2], item[3], item[4], item[5], today_str))
+        cursor.execute("SELECT id FROM chunks WHERE chunk = ?", (item[0],))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute('''
+            UPDATE chunks 
+            SET reading = ?, category = ?, meaning = ?, example = ?, grammar_point = ?
+            WHERE id = ?
+            ''', (item[1], item[2], item[3], item[4], item[5], row[0]))
+        else:
+            cursor.execute('''
+            INSERT INTO chunks (chunk, reading, category, meaning, example, grammar_point, repetitions, interval_days, ease_factor, next_review_date, mistake_count)
+            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0)
+            ''', (item[0], item[1], item[2], item[3], item[4], item[5], today_str))
 
     conn.commit()
     cursor.execute("SELECT COUNT(*) FROM chunks")
     count = cursor.fetchone()[0]
-    print(f"Successfully seeded {count} chunks into {DB_PATH}")
+    print(f"Successfully synced {count} chunks into {DB_PATH} (User progress preserved)")
     conn.close()
 
 def seed_pop_culture_database():
     from pop_culture_data import POP_CULTURE_DATA
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("DROP TABLE IF EXISTS pop_culture")
     cursor.execute('''
-    CREATE TABLE pop_culture (
+    CREATE TABLE IF NOT EXISTS pop_culture (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         work TEXT NOT NULL,
         character TEXT NOT NULL,
@@ -1434,15 +1461,24 @@ def seed_pop_culture_database():
     ''')
 
     for item in POP_CULTURE_DATA:
-        cursor.execute('''
-        INSERT INTO pop_culture (work, character, category, spanish, reading, japanese, breakdown, grammar_point)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (item["work"], item["character"], item["category"], item["spanish"], item["reading"], item["japanese"], item["breakdown"], item["grammar_point"]))
+        cursor.execute("SELECT id FROM pop_culture WHERE spanish = ?", (item["spanish"],))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute('''
+            UPDATE pop_culture 
+            SET work = ?, character = ?, category = ?, reading = ?, japanese = ?, breakdown = ?, grammar_point = ?
+            WHERE id = ?
+            ''', (item["work"], item["character"], item["category"], item["reading"], item["japanese"], item["breakdown"], item["grammar_point"], row[0]))
+        else:
+            cursor.execute('''
+            INSERT INTO pop_culture (work, character, category, spanish, reading, japanese, breakdown, grammar_point)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (item["work"], item["character"], item["category"], item["spanish"], item["reading"], item["japanese"], item["breakdown"], item["grammar_point"]))
 
     conn.commit()
     cursor.execute("SELECT COUNT(*) FROM pop_culture")
     count = cursor.fetchone()[0]
-    print(f"Successfully seeded {count} pop culture quotes into {DB_PATH}")
+    print(f"Successfully synced {count} pop culture quotes into {DB_PATH}")
     conn.close()
 
 if __name__ == "__main__":
