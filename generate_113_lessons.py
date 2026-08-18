@@ -1379,6 +1379,74 @@ def seed_dictionary_database():
     print(f"Successfully seeded {count} words with conjugations into {DB_PATH}")
     conn.close()
 
+def seed_chunks_database():
+    from chunks_data import CHUNKS_DATA
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DROP TABLE IF EXISTS chunks")
+    cursor.execute('''
+    CREATE TABLE chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chunk TEXT NOT NULL,
+        reading TEXT NOT NULL,
+        category TEXT NOT NULL,
+        meaning TEXT NOT NULL,
+        example TEXT NOT NULL,
+        grammar_point TEXT NOT NULL,
+        repetitions INTEGER DEFAULT 0,
+        interval_days INTEGER DEFAULT 0,
+        ease_factor REAL DEFAULT 2.5,
+        next_review_date TEXT,
+        mistake_count INTEGER DEFAULT 0
+    )
+    ''')
+
+    today_str = datetime.date.today().isoformat()
+    for item in CHUNKS_DATA:
+        cursor.execute('''
+        INSERT INTO chunks (chunk, reading, category, meaning, example, grammar_point, repetitions, interval_days, ease_factor, next_review_date, mistake_count)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0)
+        ''', (item[0], item[1], item[2], item[3], item[4], item[5], today_str))
+
+    conn.commit()
+    cursor.execute("SELECT COUNT(*) FROM chunks")
+    count = cursor.fetchone()[0]
+    print(f"Successfully seeded {count} chunks into {DB_PATH}")
+    conn.close()
+
+def seed_pop_culture_database():
+    from pop_culture_data import POP_CULTURE_DATA
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DROP TABLE IF EXISTS pop_culture")
+    cursor.execute('''
+    CREATE TABLE pop_culture (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work TEXT NOT NULL,
+        character TEXT NOT NULL,
+        category TEXT NOT NULL,
+        spanish TEXT NOT NULL,
+        reading TEXT NOT NULL,
+        japanese TEXT NOT NULL,
+        breakdown TEXT NOT NULL,
+        grammar_point TEXT NOT NULL
+    )
+    ''')
+
+    for item in POP_CULTURE_DATA:
+        cursor.execute('''
+        INSERT INTO pop_culture (work, character, category, spanish, reading, japanese, breakdown, grammar_point)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (item["work"], item["character"], item["category"], item["spanish"], item["reading"], item["japanese"], item["breakdown"], item["grammar_point"]))
+
+    conn.commit()
+    cursor.execute("SELECT COUNT(*) FROM pop_culture")
+    count = cursor.fetchone()[0]
+    print(f"Successfully seeded {count} pop culture quotes into {DB_PATH}")
+    conn.close()
+
 if __name__ == "__main__":
     seed_database()
     seed_dictionary_database()
+    seed_chunks_database()
+    seed_pop_culture_database()

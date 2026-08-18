@@ -7,6 +7,9 @@ import os
 import re
 import time
 from dictionary_data import DICTIONARY_DATA
+from chunks_data import CHUNKS_DATA
+from pop_culture_data import POP_CULTURE_DATA
+from pattern_practice_data import PATTERN_PRACTICE_DATA
 
 # --- ページ設定 ---
 st.set_page_config(
@@ -156,6 +159,89 @@ def get_dict_df(query="", category="すべて"):
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
         if "ease_factor" in df.columns:
             df["ease_factor"] = pd.to_numeric(df["ease_factor"], errors="coerce").fillna(2.5).astype(float)
+    return df
+
+def init_chunks_db():
+    if not os.path.exists(DB_PATH):
+        import generate_113_lessons
+        generate_113_lessons.seed_chunks_database()
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chunk TEXT NOT NULL,
+        reading TEXT NOT NULL,
+        category TEXT NOT NULL,
+        meaning TEXT NOT NULL,
+        example TEXT NOT NULL,
+        grammar_point TEXT NOT NULL,
+        repetitions INTEGER DEFAULT 0,
+        interval_days INTEGER DEFAULT 0,
+        ease_factor REAL DEFAULT 2.5,
+        next_review_date TEXT,
+        mistake_count INTEGER DEFAULT 0
+    )
+    ''')
+    cursor.execute("SELECT COUNT(*) FROM chunks")
+    count = cursor.fetchone()[0]
+    conn.close()
+    if count < len(CHUNKS_DATA):
+        import generate_113_lessons
+        generate_113_lessons.seed_chunks_database()
+
+def get_chunks_df(category="すべて"):
+    init_chunks_db()
+    conn = sqlite3.connect(DB_PATH)
+    if category == "すべて":
+        df = pd.read_sql_query("SELECT * FROM chunks ORDER BY id ASC", conn)
+    else:
+        df = pd.read_sql_query("SELECT * FROM chunks WHERE category = ? ORDER BY id ASC", conn, params=(category,))
+    conn.close()
+    if not df.empty:
+        for col in ["id", "repetitions", "interval_days", "mistake_count"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+        if "ease_factor" in df.columns:
+            df["ease_factor"] = pd.to_numeric(df["ease_factor"], errors="coerce").fillna(2.5).astype(float)
+    return df
+
+def init_pop_culture_db():
+    if not os.path.exists(DB_PATH):
+        import generate_113_lessons
+        generate_113_lessons.seed_pop_culture_database()
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS pop_culture (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work TEXT NOT NULL,
+        character TEXT NOT NULL,
+        category TEXT NOT NULL,
+        spanish TEXT NOT NULL,
+        reading TEXT NOT NULL,
+        japanese TEXT NOT NULL,
+        breakdown TEXT NOT NULL,
+        grammar_point TEXT NOT NULL
+    )
+    ''')
+    cursor.execute("SELECT COUNT(*) FROM pop_culture")
+    count = cursor.fetchone()[0]
+    conn.close()
+    if count < len(POP_CULTURE_DATA):
+        import generate_113_lessons
+        generate_113_lessons.seed_pop_culture_database()
+
+def get_pop_culture_df(category="すべて"):
+    init_pop_culture_db()
+    conn = sqlite3.connect(DB_PATH)
+    if category == "すべて":
+        df = pd.read_sql_query("SELECT * FROM pop_culture ORDER BY id ASC", conn)
+    else:
+        df = pd.read_sql_query("SELECT * FROM pop_culture WHERE category = ? ORDER BY id ASC", conn, params=(category,))
+    conn.close()
     return df
 
 def init_cards_db():
@@ -335,16 +421,22 @@ st.sidebar.caption("全113課文法 & 220語+単語忘却曲線マスター")
 init_user_state()
 init_cards_db()
 init_dict_db()
+init_chunks_db()
+init_pop_culture_db()
 init_logs_db()
 
 menu = st.sidebar.radio(
     "メニューを選択",
     [
         "📖 文法レッスン (全113課)",
-        "🗂️ 単語フラッシュカード (SRS忘却曲線)",
+        "🔀 全113課 インターリービング文法シャッフル (実戦)",
+        "⚡ 瞬間パターンプラクティス (瞬間西作文)",
+        "🧩 最重要チャンクマスター (50選 / Smart SRS)",
+        "🎬 映画・ドラマ・アニメ名セリフ (Sentence Mining)",
+        "🗂️ 単語フラッシュカード (Smart Timer SRS)",
         "🔍 単語帳＆実用辞書 (220語+)",
         "📐 文法公式＆活用マスター",
-        "📝 文法復習クイズ (SRS)",
+        "📝 文法復習セッション (SRS)",
         "📊 学習ダッシュボード",
         "📚 カリキュラム・単語一覧",
         "📈 学習ログ・履歴分析"
@@ -443,8 +535,363 @@ if menu == "📖 文法レッスン (全113課)":
                 save_last_lesson_idx(st.session_state.current_lesson_idx)
                 st.rerun()
 
-# 2. 🗂️ 単語フラッシュカード (SRS忘却曲線)
-elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
+# 2. 🔀 全113課 インターリービング文法シャッフル (実戦)
+elif menu == "🔀 全113課 インターリービング文法シャッフル (実戦)":
+    st.title("🔀 全113課 インターリービング文法シャッフル")
+    st.caption("認知科学で実証された「交互配置学習 (Interleaving)」により、全113課の様々な文法・時制をランダムに出題！「いまどの文法を使うべきか？」の瞬時見極め力を鍛えます。")
+    
+    cards_df = get_cards_df()
+    
+    col_mode1, col_mode2 = st.columns([1, 1])
+    with col_mode1:
+        shuffle_count = st.selectbox("🎯 出題問題数", [10, 20, 30, "全問エンドレス"], index=0, key="interleave_count")
+    with col_mode2:
+        shuffle_filter = st.selectbox("🏷️ 対象範囲", ["全113課すべてからシャッフル", "初級文法 (第1〜40課)", "中級・過去形・未来 (第41〜80課)", "上級・接続法・応用 (第81〜113課)"], key="interleave_filter")
+        
+    if "interleave_deck" not in st.session_state or st.button("🔄 新しいシャッフルセットを開始", use_container_width=True):
+        if "第1〜40課" in shuffle_filter:
+            sub_df = cards_df.iloc[:40]
+        elif "第41〜80課" in shuffle_filter:
+            sub_df = cards_df.iloc[40:80]
+        elif "第81〜113課" in shuffle_filter:
+            sub_df = cards_df.iloc[80:]
+        else:
+            sub_df = cards_df
+            
+        n_sample = len(sub_df) if shuffle_count == "全問エンドレス" else min(int(shuffle_count), len(sub_df))
+        st.session_state.interleave_deck = sub_df.sample(n=n_sample).to_dict("records")
+        st.session_state.interleave_idx = 0
+        st.session_state.interleave_answered = False
+        st.session_state.interleave_score = 0
+        st.session_state.interleave_start_time = time.time()
+        st.rerun()
+
+    deck = st.session_state.interleave_deck
+    idx = st.session_state.interleave_idx
+    
+    if idx >= len(deck):
+        st.success(f"🎉 シャッフル特訓完了！ スコア: {st.session_state.interleave_score} / {len(deck)} 問正解！")
+        st.balloons()
+        if st.button("もう一度挑戦する 🔄", type="primary", use_container_width=True):
+            del st.session_state.interleave_deck
+            st.rerun()
+    else:
+        q_card = deck[idx]
+        st.caption(f"問題 {idx + 1} / {len(deck)} ｜ 現在の正解数: {st.session_state.interleave_score}")
+        st.progress((idx + 1) / len(deck))
+        
+        card_content_box = (
+            '<div style="background-color:#f8fafc; border:1px solid #e2e8f0; border-left:6px solid #8b5cf6; padding:18px; border-radius:10px; margin-bottom:16px;">'
+            f'<div style="font-size:0.9rem; color:#6b21a8; font-weight:bold; margin-bottom:4px;">【{q_card["category"]}】 {q_card["lesson_title"]}</div>'
+            f'<div style="font-size:1.15rem; font-weight:bold; color:#1e293b; margin-bottom:12px;">{q_card["title"]}</div>'
+            '<div style="background-color:#ffffff; border:1px solid #cbd5e1; padding:14px; border-radius:8px; font-size:1.35rem; font-weight:bold; color:#0f172a;">'
+            f'{q_card["sentence"].replace("[___]", "＿＿＿＿")}'
+            '</div>'
+            '</div>'
+        )
+        st.markdown(card_content_box, unsafe_allow_html=True)
+        
+        if "interleave_start_time" not in st.session_state:
+            st.session_state.interleave_start_time = time.time()
+            
+        options = [opt.strip() for opt in q_card["options"].split(",")]
+        
+        if not st.session_state.interleave_answered:
+            cols = st.columns(len(options))
+            for i, opt in enumerate(options):
+                if cols[i].button(f"{i+1}. {opt}", key=f"int_opt_{idx}_{i}", use_container_width=True):
+                    st.session_state.interleave_elapsed = max(0.1, round(time.time() - st.session_state.interleave_start_time, 1))
+                    st.session_state.interleave_answered = True
+                    st.session_state.interleave_selected = opt
+                    is_cor = (opt.strip().lower() == q_card["correct_answer"].strip().lower())
+                    if is_cor:
+                        st.session_state.interleave_score += 1
+                    st.session_state.interleave_is_correct = is_cor
+                    st.rerun()
+        else:
+            if st.session_state.interleave_is_correct:
+                st.success(f"🎉 正解！ (正解: {q_card['correct_answer']}) ⏱️ 回答時間: {st.session_state.interleave_elapsed:.1f}秒")
+            else:
+                st.error(f"❌ 不正解！ (選択: {st.session_state.interleave_selected} ／ 正解: {q_card['correct_answer']})")
+                
+            exp_box = f'<div style="background-color:#fff7ed; border-left:4px solid #f97316; padding:14px; border-radius:6px; margin-bottom:16px;"><strong>💡 解説:</strong><br>{q_card["explanation"]}</div>'
+            st.markdown(exp_box, unsafe_allow_html=True)
+            
+            if st.button("次の問題へ進む ➡️", type="primary", use_container_width=True):
+                st.session_state.interleave_idx += 1
+                st.session_state.interleave_answered = False
+                st.session_state.interleave_start_time = time.time()
+                st.rerun()
+
+# 3. ⚡ 瞬間パターンプラクティス (瞬間西作文)
+elif menu == "⚡ 瞬間パターンプラクティス (瞬間西作文)":
+    st.title("⚡ 瞬間パターンプラクティス (瞬間西作文 10本ノック)")
+    st.caption("脳内の文法知識を「口の筋肉の反射（手続き記憶）」へ転換！日本語を見て3秒以内に声に出してスペイン語を言う瞬発力トレーニングです。")
+    
+    drill_names = [d["pattern_name"] for d in PATTERN_PRACTICE_DATA]
+    sel_drill_name = st.selectbox("🎯 特訓する文型パターンを選択", drill_names, key="pattern_drill_select")
+    selected_drill = next(d for d in PATTERN_PRACTICE_DATA if d["pattern_name"] == sel_drill_name)
+    
+    st.info(f"💡 <b>基本ルール:</b> {selected_drill['base_rule']}", icon="📐")
+    
+    if "drill_idx" not in st.session_state or st.session_state.get("current_drill_name") != sel_drill_name:
+        st.session_state.drill_idx = 0
+        st.session_state.current_drill_name = sel_drill_name
+        st.session_state.drill_revealed = False
+        st.session_state.drill_start_time = time.time()
+        
+    drills = selected_drill["drills"]
+    idx = st.session_state.drill_idx
+    
+    if idx >= len(drills):
+        st.success(f"🎉 お見事！「{sel_drill_name}」の10本ノックを完走しました！")
+        st.balloons()
+        if st.button("もう一度最初から特訓する 🔄", type="primary", use_container_width=True):
+            st.session_state.drill_idx = 0
+            st.session_state.drill_revealed = False
+            st.session_state.drill_start_time = time.time()
+            st.rerun()
+    else:
+        q_jp, ans_es, breakdown = drills[idx]
+        
+        st.caption(f"第 {idx + 1} / {len(drills)} 問")
+        st.progress((idx + 1) / len(drills))
+        
+        drill_front_html = (
+            '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #e11d48; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+            '<div style="font-size:0.95rem; color:#e11d48; font-weight:bold; margin-bottom:8px;">⏱️ 3秒以内に声に出してスペイン語で言ってください：</div>'
+            f'<div style="font-size:1.8rem; font-weight:bold; color:#1e293b; padding:12px 0;">{q_jp}</div>'
+            '</div>'
+        )
+        st.markdown(drill_front_html, unsafe_allow_html=True)
+        
+        if not st.session_state.drill_revealed:
+            if st.button("💡 スペイン語の正解を見る (めくる)", type="primary", use_container_width=True):
+                st.session_state.drill_elapsed = max(0.1, round(time.time() - st.session_state.drill_start_time, 1))
+                st.session_state.drill_revealed = True
+                st.rerun()
+        else:
+            speed_badge = "⚡ 即答！" if st.session_state.drill_elapsed < 3.0 else "🟢 Good"
+            drill_reveal_html = (
+                '<div style="background-color:#fff1f2; border:1px solid #fecdd3; border-left:6px solid #e11d48; padding:20px; border-radius:10px; margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">'
+                '<span style="font-size:0.95rem; color:#9f1239; font-weight:bold;">🇪🇸 正解のスペイン語:</span>'
+                f'<span style="background-color:#ffe4e6; color:#be123c; padding:2px 10px; border-radius:10px; font-size:0.85rem; font-weight:bold;">⏱️ {st.session_state.drill_elapsed:.1f}秒 ({speed_badge})</span>'
+                '</div>'
+                f'<h1 style="font-size:2.4rem; color:#881337; margin:6px 0; font-weight:800;">{ans_es}</h1>'
+                '<hr style="border:none; border-top:1px solid #fecdd3; margin:10px 0;">'
+                f'<div style="font-size:1.0rem; color:#334155; line-height:1.7;"><b>🔍 単語分解:</b> {breakdown}</div>'
+                '</div>'
+            )
+            st.markdown(drill_reveal_html, unsafe_allow_html=True)
+            
+            b_col1, b_col2 = st.columns([1.5, 1])
+            with b_col1:
+                if st.button("⭕️ 言えた！（次の問題へ ➡️）", type="primary", use_container_width=True):
+                    st.session_state.drill_idx += 1
+                    st.session_state.drill_revealed = False
+                    st.session_state.drill_start_time = time.time()
+                    st.rerun()
+            with b_col2:
+                if st.button("❌ 詰まった（もう一度復習）", use_container_width=True):
+                    st.session_state.drill_revealed = False
+                    st.session_state.drill_start_time = time.time()
+                    st.rerun()
+
+# 4. 🧩 最重要チャンクマスター (50選 / Smart SRS)
+elif menu == "🧩 最重要チャンクマスター (50選 / Smart SRS)":
+    st.title("🧩 最重要チャンク（定型フレーズ）マスター 50選")
+    st.caption("単語ではなく「2〜4語の定型ブロック（チャンク）」で覚えることで、文法を考えずにスラスラ話せるようになります！")
+    
+    chunks_df = get_chunks_df()
+    today_str = date.today().isoformat()
+    
+    c_cat1, c_cat2 = st.columns(2)
+    with c_cat1:
+        chunk_categories = ["すべて"] + list(chunks_df["category"].unique())
+        sel_chunk_cat = st.selectbox("🏷️ チャンクカテゴリー", chunk_categories, key="chunk_cat_select")
+    with c_cat2:
+        chunk_direction = st.selectbox("🔄 出題方向", ["🇪🇸 西 ➔ 🇯🇵 日 (インプット)", "🇯🇵 日 ➔ 🇪🇸 西 (アウトプット特訓)"], key="chunk_direction_select")
+        
+    filtered_chunks = chunks_df if sel_chunk_cat == "すべて" else chunks_df[chunks_df["category"] == sel_chunk_cat]
+    
+    if len(filtered_chunks) == 0:
+        st.info("チャンクが見つかりませんでした。")
+    else:
+        if "chunk_idx" not in st.session_state or st.session_state.chunk_idx >= len(filtered_chunks):
+            st.session_state.chunk_idx = 0
+            st.session_state.chunk_revealed = False
+            
+        c_card = filtered_chunks.iloc[st.session_state.chunk_idx]
+        
+        st.caption(f"残り {len(filtered_chunks) - st.session_state.chunk_idx} / {len(filtered_chunks)} チャンク")
+        st.progress((st.session_state.chunk_idx + 1) / len(filtered_chunks))
+        
+        if "chunk_start_time" not in st.session_state or st.session_state.get("chunk_card_id") != c_card["id"]:
+            st.session_state.chunk_start_time = time.time()
+            st.session_state.chunk_card_id = int(c_card["id"])
+            st.session_state.chunk_elapsed_sec = 0.0
+            
+        is_j_to_s = ("日 ➔ 🇪🇸 西" in chunk_direction)
+        
+        if not is_j_to_s:
+            # 西 ➔ 日
+            front_chunk_html = (
+                '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0891b2; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
+                f'<span style="background-color:#cffafe; color:#0e7490; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{c_card["category"]}</span>'
+                f'<span style="font-size:0.9rem; color:#64748b;">Lv.{c_card["repetitions"]} / 間隔:{c_card["interval_days"]}日</span>'
+                '</div>'
+                '<div style="text-align:center; padding:16px 0;">'
+                f'<h1 style="font-size:2.8rem; color:#0f172a; margin:0; font-weight:800;">{c_card["chunk"]}</h1>'
+                f'<div style="font-size:1.2rem; color:#64748b; margin-top:8px;">【 {c_card["reading"]} 】</div>'
+                '</div>'
+                '</div>'
+            )
+        else:
+            # 日 ➔ 西
+            front_chunk_html = (
+                '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0891b2; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
+                f'<span style="background-color:#cffafe; color:#0e7490; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{c_card["category"]} (日➔西 特訓)</span>'
+                f'<span style="font-size:0.9rem; color:#64748b;">Lv.{c_card["repetitions"]}</span>'
+                '</div>'
+                '<div style="padding:14px 0;">'
+                '<div style="font-size:0.95rem; color:#0891b2; font-weight:bold; margin-bottom:8px;">🤔 この意味のスペイン語チャンク（定型フレーズ）を思い出してください：</div>'
+                f'<div style="font-size:1.5rem; font-weight:bold; color:#1e293b; background-color:#ecfeff; padding:16px; border-radius:8px; border-left:5px solid #0891b2;">{c_card["meaning"]}</div>'
+                '</div>'
+                '</div>'
+            )
+        st.markdown(front_chunk_html, unsafe_allow_html=True)
+        
+        if not st.session_state.chunk_revealed:
+            if st.button("💡 答えと例文をめくる", type="primary", use_container_width=True):
+                st.session_state.chunk_elapsed_sec = max(0.1, round(time.time() - st.session_state.chunk_start_time, 1))
+                st.session_state.chunk_revealed = True
+                st.rerun()
+        else:
+            ans_box = ""
+            if is_j_to_s:
+                ans_box = (
+                    '<div style="background-color:#ffffff; border:2px solid #0891b2; padding:18px; border-radius:10px; text-align:center; margin-bottom:16px;">'
+                    '<div style="font-size:0.9rem; color:#0891b2; font-weight:bold;">🇪🇸 正解のチャンク</div>'
+                    f'<h1 style="font-size:2.8rem; color:#0f172a; margin:4px 0; font-weight:800;">{c_card["chunk"]}</h1>'
+                    f'<div style="font-size:1.2rem; color:#64748b;">【 {c_card["reading"]} 】</div>'
+                    '</div>'
+                )
+            reveal_chunk_html = (
+                f'{ans_box}'
+                '<div style="background-color:#ecfeff; border:1px solid #cffafe; border-left:6px solid #06b6d4; padding:18px; border-radius:10px; margin-bottom:16px;">'
+                '<h4 style="color:#0e7490; margin-top:0;">📖 日本語の意味:</h4>'
+                f'<div style="font-size:1.2rem; color:#1e293b; font-weight:bold; margin-bottom:12px;">{c_card["meaning"]}</div>'
+                '<hr style="border:none; border-top:1px solid #cffafe; margin:12px 0;">'
+                '<h4 style="color:#0284c7; margin-top:0;">💬 実際の会話例文 (単語分解つき):</h4>'
+                f'<div style="font-size:1.05rem; line-height:1.8; color:#1e293b;">{c_card["example"]}</div>'
+                '<hr style="border:none; border-top:1px solid #cffafe; margin:12px 0;">'
+                f'<div style="font-size:0.95rem; color:#334155; line-height:1.6;">{c_card["grammar_point"]}</div>'
+                '</div>'
+            )
+            st.markdown(reveal_chunk_html, unsafe_allow_html=True)
+            
+            # Smart SRS
+            s_reps, s_inv, s_ef, s_date, s_rat, s_lbl, s_det = calculate_smart_srs(
+                int(c_card["repetitions"]), int(c_card["interval_days"]), float(c_card["ease_factor"]),
+                int(c_card["mistake_count"]), float(st.session_state.chunk_elapsed_sec), int(c_card["interval_days"]), is_correct=True
+            )
+            f_reps, f_inv, f_ef, f_date, f_rat, f_lbl, f_det = calculate_smart_srs(
+                int(c_card["repetitions"]), int(c_card["interval_days"]), float(c_card["ease_factor"]),
+                int(c_card["mistake_count"]), float(st.session_state.chunk_elapsed_sec), int(c_card["interval_days"]), is_correct=False
+            )
+            
+            chunk_smart_fb = (
+                '<div style="background-color:#f0fdf4; border:1px solid #bbf7d0; border-left:6px solid #16a34a; padding:14px 18px; border-radius:8px; margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center;">'
+                '<span style="font-weight:bold; color:#15803d;">🧠 AI忘却曲線判定:</span>'
+                f'<span style="background-color:#dcfce7; color:#166534; padding:2px 10px; border-radius:10px; font-weight:bold; font-size:0.85rem;">{s_lbl}</span>'
+                '</div>'
+                f'<div style="font-size:0.9rem; color:#334155; margin-top:4px;">{s_det}</div>'
+                '</div>'
+            )
+            st.markdown(chunk_smart_fb, unsafe_allow_html=True)
+            
+            def submit_chunk_record(reps, interval, ef, next_date, mistakes_delta, rating, is_correct):
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                new_m = max(0, int(c_card["mistake_count"]) + mistakes_delta)
+                c.execute('''
+                UPDATE chunks 
+                SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
+                WHERE id = ?
+                ''', (reps, interval, ef, next_date, new_m, int(c_card["id"])))
+                conn.commit()
+                conn.close()
+                st.session_state.chunk_idx += 1
+                st.session_state.chunk_revealed = False
+                st.session_state.chunk_start_time = time.time()
+                st.rerun()
+                
+            c_col1, c_col2 = st.columns([1.5, 1])
+            with c_col1:
+                if st.button(f"⭕️ 分かった！正解（{s_inv}日後に再出題 ➡️）", key="chk_btn_ok", type="primary", use_container_width=True):
+                    submit_chunk_record(s_reps, s_inv, s_ef, s_date, 0, s_rat, 1)
+            with c_col2:
+                if st.button("❌ 分からなかった（明日復習）", key="chk_btn_ng", use_container_width=True):
+                    submit_chunk_record(f_reps, f_inv, f_ef, f_date, 1, f_rat, 0)
+
+# 5. 🎬 映画・ドラマ・アニメ名セリフ (Sentence Mining)
+elif menu == "🎬 映画・ドラマ・アニメ名セリフ (Sentence Mining)":
+    st.title("🎬 映画・ドラマ・アニメ名セリフで学ぶスペイン語")
+    st.caption("感情やストーリー（文脈）と結びつけることで、脳に強烈に記憶が焼き付く「センテンス・マイニング」学習です！")
+    
+    pop_df = get_pop_culture_df()
+    
+    pop_categories = ["すべて"] + list(pop_df["category"].unique())
+    col_p1, col_p2 = st.columns([1, 1])
+    with col_p1:
+        sel_pop_cat = st.selectbox("🏷️ ジャンルを選択", pop_categories, key="pop_cat_filter")
+    with col_p2:
+        hide_spanish = st.checkbox("🙈 セリフを隠して思い出す（暗記特訓モード）", value=False)
+        
+    filtered_pop = pop_df if sel_pop_cat == "すべて" else pop_df[pop_df["category"] == sel_pop_cat]
+    
+    st.caption(f"全 {len(filtered_pop)} 件の名セリフ")
+    st.divider()
+    
+    for _, quote in filtered_pop.iterrows():
+        badge_bg = "#f3e8ff" if "アニメ" in quote["category"] or "ジブリ" in quote["category"] else "#fee2e2"
+        badge_color = "#6b21a8" if "アニメ" in quote["category"] or "ジブリ" in quote["category"] else "#991b1b"
+        disp_quote_spanish = "🔒 [クリックしてセリフを表示]" if hide_spanish else quote["spanish"]
+        
+        quote_card_html = (
+            '<div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #8b5cf6; padding:20px; border-radius:12px; margin-bottom:20px; box-shadow:0 2px 4px rgba(0,0,0,0.04);">'
+            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">'
+            '<div>'
+            f'<span style="font-size:1.15rem; font-weight:bold; color:#1e293b;">🎬 {quote["work"]}</span>'
+            f'<span style="font-size:0.95rem; color:#64748b; margin-left:8px;">キャラ: <b>{quote["character"]}</b></span>'
+            '</div>'
+            f'<span style="background-color:{badge_bg}; color:{badge_color}; padding:4px 12px; border-radius:14px; font-size:0.85rem; font-weight:bold;">{quote["category"]}</span>'
+            '</div>'
+            '<div style="margin-top:10px; padding:16px; background-color:#faf5ff; border-radius:8px;">'
+            '<div style="font-size:0.9rem; color:#7c3aed; font-weight:bold; margin-bottom:4px;">🇪🇸 スペイン語セリフ:</div>'
+            f'<div style="font-size:1.45rem; font-weight:bold; color:#581c87; line-height:1.6;">{disp_quote_spanish}</div>'
+            f'<div style="font-size:1.0rem; color:#6b7280; margin-top:6px;">【 {quote["reading"]} 】</div>'
+            '</div>'
+            '<div style="margin-top:12px; padding:14px; background-color:#f8fafc; border-radius:8px;">'
+            '<div style="font-size:0.9rem; color:#0284c7; font-weight:bold; margin-bottom:4px;">🇯🇵 日本語の意味:</div>'
+            f'<div style="font-size:1.15rem; color:#0f172a; font-weight:bold;">{quote["japanese"]}</div>'
+            '</div>'
+            '<div style="margin-top:12px; padding:12px; background-color:#f1f5f9; border-radius:6px; font-size:0.95rem; color:#334155; line-height:1.7;">'
+            f'<b>🔍 単語分解:</b><br>{quote["breakdown"]}'
+            '</div>'
+            '<div style="margin-top:12px; padding:12px; background-color:#fffbeb; border-radius:6px; font-size:0.95rem; color:#92400e; line-height:1.7;">'
+            f'{quote["grammar_point"]}'
+            '</div>'
+            '</div>'
+        )
+        st.markdown(quote_card_html, unsafe_allow_html=True)
+
+# 6. 🗂️ 単語フラッシュカード (Smart Timer SRS)
+elif menu == "🗂️ 単語フラッシュカード (Smart Timer SRS)":
     st.title("🗂️ 単語フラッシュカード (SRS忘却曲線 暗記特訓)")
     st.caption("エビングハウスの忘却曲線アルゴリズム (SM-2) に基づき、最適な復習タイミングで単語を自動出題します。")
 
@@ -831,8 +1278,8 @@ elif menu == "📐 文法公式＆活用マスター":
             pron_df = pd.DataFrame({"主語 (〜は)": ["yo (ヨ: 私は)", "tú (トゥ: 君は)", "él / ella / usted (彼/彼女/あなた)", "nosotros (ノソトロス: 私たちは)", "ellos / ustedes (彼ら/あなた方)"], "直接目的語 (〜を)": ["me (メ: 私を)", "te (テ: 君を)", "lo / la (ロ/ラ: 彼を/彼女を/それを)", "nos (ノス: 私たちを)", "los / las (ロス/ラス: 彼らを/それらを)"], "間接目的語 (〜に)": ["me (メ: 私に)", "te (テ: 君に)", "le / se (レ/セ: 彼に/彼女に/あなたに)", "nos (ノス: 私たちに)", "les / se (レス/セ: 彼らに/あなた方に)"], "再帰代名詞 (自分を)": ["me (メ: 自分を)", "te (テ: 自分を)", "se (セ: 自分を)", "nos (ノス: 自分たちを)", "se (セ: 自分たちを)"]}, index=["1人称 (私)", "2人称 (君)", "3人称 (彼/彼女/あなた)", "1人称複数 (私たち)", "3人称複数 (彼ら/あなた方)"])
             st.dataframe(pron_df, use_container_width=True)
 
-# 5. 📝 文法復習クイズ (SRS)
-elif menu == "📝 文法復習クイズ (SRS)":
+# 9. 📝 文法復習セッション (SRS)
+elif menu == "📝 文法復習セッション (SRS)":
     st.title("📝 文法復習セッション (忘却曲線 SRS)")
     cards_df = get_cards_df()
     today_str = date.today().isoformat()
@@ -971,11 +1418,12 @@ elif menu == "📝 文法復習クイズ (SRS)":
                     m_r, m_i, m_ef, m_d = calculate_sm2(int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]), 4)
                     submit_grammar_record(m_r, m_i, m_ef, m_d, 0, 4, 1)
 
-# 6. 📊 学習ダッシュボード
+# 10. 📊 学習ダッシュボード
 elif menu == "📊 学習ダッシュボード":
-    st.title("📊 学習ダッシュボード (文法 ＆ 単語)")
+    st.title("📊 学習ダッシュボード (文法・単語・チャンク総合)")
     cards_df = get_cards_df()
     dict_df = get_dict_df()
+    chunks_df = get_chunks_df()
     
     today_str = date.today().isoformat()
     
@@ -991,16 +1439,20 @@ elif menu == "📊 学習ダッシュボード":
     learning_words = len(dict_df[(dict_df["repetitions"] > 0) & (dict_df["repetitions"] < 4)])
     unseen_words = len(dict_df[dict_df["repetitions"] == 0])
 
-    st.subheader("📚 2大マスター進捗")
+    # チャンク指標
+    total_chunks = len(chunks_df)
+    mastered_chunks = len(chunks_df[chunks_df["repetitions"] >= 4])
+
+    st.subheader("📚 総合マスター進捗")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("📖 文法カリキュラム", f"{total_cards} 課", delta=f"{mastered_cards} 課 定着" if mastered_cards > 0 else "学習中")
-    col2.metric("🗂️ 単語マスター語数", f"{total_words} 語", delta=f"{mastered_words} 語 定着" if mastered_words > 0 else "学習中")
-    col3.metric("📌 本日の文法復習待ち", f"{due_cards} 問")
-    col4.metric("📌 本日の単語復習待ち", f"{due_words} 語")
+    col2.metric("🗂️ 単語マスター", f"{total_words} 語", delta=f"{mastered_words} 語 定着" if mastered_words > 0 else "学習中")
+    col3.metric("🧩 定型チャンク", f"{total_chunks} 個", delta=f"{mastered_chunks} 個 定着" if mastered_chunks > 0 else "学習中")
+    col4.metric("📌 本日の総復習待ち", f"{due_cards + due_words} 件")
     
     st.divider()
     
-    st.subheader("🎯 単語の暗記定着度 (SRS忘却曲線 ステータス)")
+    st.subheader("🎯 単語・チャンクの暗記定着度 (Smart SRS ステータス)")
     v_stat_col1, v_stat_col2, v_stat_col3 = st.columns(3)
     v_stat_col1.metric("🌱 未学習の単語", f"{unseen_words} 語")
     v_stat_col2.metric("🔄 復習中 (Lv1〜3)", f"{learning_words} 語")
