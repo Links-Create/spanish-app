@@ -53,6 +53,11 @@ def save_last_lesson_idx(idx):
         pass
 
 def init_dict_db():
+    if not os.path.exists(DB_PATH):
+        import generate_113_lessons
+        generate_113_lessons.seed_database()
+        generate_113_lessons.seed_dictionary_database()
+        return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -63,18 +68,25 @@ def init_dict_db():
         pos TEXT NOT NULL,
         meanings TEXT NOT NULL,
         examples TEXT NOT NULL,
-        category TEXT NOT NULL
+        category TEXT NOT NULL,
+        repetitions INTEGER DEFAULT 0,
+        interval_days INTEGER DEFAULT 0,
+        ease_factor REAL DEFAULT 2.5,
+        next_review_date TEXT,
+        mistake_count INTEGER DEFAULT 0,
+        created_at TEXT
     )
     ''')
+    # Check if repetitions column exists
+    cursor.execute("PRAGMA table_info(dictionary)")
+    cols = [c[1] for c in cursor.fetchall()]
     cursor.execute("SELECT COUNT(*) FROM dictionary")
-    if cursor.fetchone()[0] == 0:
-        for item in DICTIONARY_DATA:
-            cursor.execute('''
-            INSERT INTO dictionary (word, reading, pos, meanings, examples, category)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''', item)
-    conn.commit()
+    count = cursor.fetchone()[0]
     conn.close()
+
+    if count < len(DICTIONARY_DATA) or "repetitions" not in cols:
+        import generate_113_lessons
+        generate_113_lessons.seed_dictionary_database()
 
 def get_dict_df(query="", category="すべて"):
     init_dict_db()
@@ -95,16 +107,24 @@ def get_dict_df(query="", category="すべて"):
             ''', conn, params=(q, q, q, q, category))
     else:
         if category == "すべて":
-            df = pd.read_sql_query("SELECT * FROM dictionary ORDER BY word ASC", conn)
+            df = pd.read_sql_query("SELECT * FROM dictionary ORDER BY id ASC", conn)
         else:
-            df = pd.read_sql_query("SELECT * FROM dictionary WHERE category = ? ORDER BY word ASC", conn, params=(category,))
+            df = pd.read_sql_query("SELECT * FROM dictionary WHERE category = ? ORDER BY id ASC", conn, params=(category,))
     conn.close()
+
+    if not df.empty:
+        for col in ["id", "repetitions", "interval_days", "mistake_count"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+        if "ease_factor" in df.columns:
+            df["ease_factor"] = pd.to_numeric(df["ease_factor"], errors="coerce").fillna(2.5).astype(float)
     return df
 
 def init_cards_db():
     if not os.path.exists(DB_PATH):
         import generate_113_lessons
         generate_113_lessons.seed_database()
+        generate_113_lessons.seed_dictionary_database()
         return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -138,7 +158,7 @@ def init_cards_db():
 def get_cards_df():
     init_cards_db()
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM cards", conn)
+    df = pd.read_sql_query("SELECT * FROM cards ORDER BY id ASC", conn)
     conn.close()
     if not df.empty:
         for col in ["id", "repetitions", "interval_days", "mistake_count"]:
@@ -152,6 +172,18 @@ def get_logs_df():
     if not os.path.exists(DB_PATH):
         return pd.DataFrame()
     conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS study_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        card_id INTEGER,
+        rating INTEGER,
+        is_correct INTEGER,
+        reviewed_at TEXT,
+        item_type TEXT DEFAULT 'grammar'
+    )
+    ''')
+    conn.commit()
     df = pd.read_sql_query("SELECT * FROM study_logs", conn)
     conn.close()
     if not df.empty:
@@ -183,24 +215,26 @@ def calculate_sm2(repetitions, interval_days, ease_factor, quality):
     next_date = date.today() + timedelta(days=new_interval)
     return new_reps, new_interval, new_ef, next_date.isoformat()
 
+# --- サイドバーナビゲーション ---
 st.sidebar.title("🇪🇸 Español SRS")
-st.sidebar.caption("全113課・辞書＆文法マスター搭載")
+st.sidebar.caption("全113課文法 & 220語+単語忘却曲線マスター")
 
 menu = st.sidebar.radio(
     "メニューを選択",
     [
-        "📖 学習レッスン (教科書・解説)",
+        "📖 文法レッスン (全113課)",
+        "🗂️ 単語フラッシュカード (SRS忘却曲線)",
+        "🔍 単語帳＆実用辞書 (220語+)",
         "📐 文法公式＆活用マスター",
-        "🔍 スペイン語辞書 (単語・例文検索)",
-        "📝 今日の復習・クイズ (SRS)",
+        "📝 文法復習クイズ (SRS)",
         "📊 学習ダッシュボード",
-        "📚 単語・文法カード一覧",
+        "📚 カリキュラム・単語一覧",
         "📈 学習ログ・履歴分析"
     ]
 )
 
-# 1. 📖 学習レッスン (教科書・解説)
-if menu == "📖 学習レッスン (教科書・解説)":
+# 1. 📖 文法レッスン (全113課)
+if menu == "📖 文法レッスン (全113課)":
     st.title("📖 スペイン語 体系的学習レッスン")
     cards_df = get_cards_df()
     
@@ -294,7 +328,179 @@ if menu == "📖 学習レッスン (教科書・解説)":
                 save_last_lesson_idx(st.session_state.current_lesson_idx)
                 st.rerun()
 
-# 2. 📐 文法公式＆活用マスター
+# 2. 🗂️ 単語フラッシュカード (SRS忘却曲線)
+elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
+    st.title("🗂️ 単語フラッシュカード (SRS忘却曲線 暗記特訓)")
+    st.caption("エビングハウスの忘却曲線アルゴリズム (SM-2) に基づき、最適な復習タイミングで単語を自動出題します。")
+
+    dict_df = get_dict_df()
+    today_str = date.today().isoformat()
+
+    # カテゴリフィルター
+    vocab_categories = ["すべて"] + list(dict_df["category"].unique())
+    col_filter1, col_filter2 = st.columns([1, 1])
+    with col_filter1:
+        sel_vocab_cat = st.selectbox("🏷️ 学習カテゴリーを選択", vocab_categories, key="vocab_srs_cat")
+    with col_filter2:
+        study_mode = st.selectbox("🔄 学習出題モード", ["本日の復習待ち ＋ 未学習（推奨）", "全単語からランダム特訓", "苦手単語（ミス多数）集中特訓"], key="vocab_study_mode")
+
+    filtered_df = dict_df if sel_vocab_cat == "すべて" else dict_df[dict_df["category"] == sel_vocab_cat]
+
+    if study_mode == "本日の復習待ち ＋ 未学習（推奨）":
+        due_vocab = filtered_df[(filtered_df["next_review_date"] <= today_str) | (filtered_df["repetitions"] == 0)].sort_values(
+            ["mistake_count", "next_review_date"], ascending=[False, True]
+        )
+    elif study_mode == "苦手単語（ミス多数）集中特訓":
+        due_vocab = filtered_df[filtered_df["mistake_count"] > 0].sort_values("mistake_count", ascending=False)
+    else:
+        due_vocab = filtered_df.sample(frac=1, random_state=42) if len(filtered_df) > 0 else filtered_df
+
+    if len(due_vocab) == 0:
+        st.success(f"🎉 素晴らしい！「{sel_vocab_cat}」の本日の単語復習はすべて完了しています！")
+        st.balloons()
+    else:
+        if "vocab_idx" not in st.session_state or st.session_state.vocab_idx >= len(due_vocab):
+            st.session_state.vocab_idx = 0
+            st.session_state.vocab_revealed = False
+
+        v_card = due_vocab.iloc[st.session_state.vocab_idx]
+        
+        # 進捗バー
+        st.caption(f"復習待ち単語：残り {len(due_vocab) - st.session_state.vocab_idx} / {len(due_vocab)} 語（カテゴリ内全 {len(filtered_df)} 語）")
+        st.progress((st.session_state.vocab_idx + 1) / len(due_vocab))
+
+        # 単語カードUI
+        status_label = "🌱 未学習" if v_card["repetitions"] == 0 else f"🔄 復習中 (Lv{v_card['repetitions']} / 間隔:{v_card['interval_days']}日)"
+        if v_card["repetitions"] >= 4:
+            status_label = f"🏆 定着済み (Lv{v_card['repetitions']} / 間隔:{v_card['interval_days']}日)"
+
+        st.markdown(f'''
+        <div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0284c7; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span style="background-color:#e0f2fe; color:#0369a1; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{v_card['category']}</span>
+                <span style="font-size:0.9rem; color:#64748b;">{status_label}</span>
+            </div>
+            <div style="text-align:center; padding:20px 0;">
+                <h1 style="font-size:3.2rem; color:#0f172a; margin:0; font-weight:800; letter-spacing:0.02em;">{v_card['word']}</h1>
+                <div style="font-size:1.25rem; color:#64748b; margin-top:8px;">【 {v_card['reading']} 】</div>
+                <div style="font-size:1.0rem; color:#0284c7; font-weight:bold; margin-top:4px;">{v_card['pos']}</div>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+
+        if not st.session_state.vocab_revealed:
+            if st.button("💡 意味と例文をめくる (答えを見る)", use_container_width=True, type="primary"):
+                st.session_state.vocab_revealed = True
+                st.rerun()
+        else:
+            st.markdown(f'''
+            <div style="background-color:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:20px; border-radius:10px; margin-bottom:16px;">
+                <h4 style="color:#b45309; margin-top:0;">📖 日本語の意味・語義:</h4>
+                <div style="font-size:1.15rem; line-height:1.8; color:#1e293b;">
+                    {v_card['meanings']}
+                </div>
+                <hr style="border:none; border-top:1px solid #fde68a; margin:14px 0;">
+                <h4 style="color:#0284c7; margin-top:0;">💬 実際の会話例文:</h4>
+                <div style="font-size:1.05rem; line-height:1.8; color:#1e293b;">
+                    {v_card['examples']}
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+            st.markdown("##### 🧠 記憶の定着度（自己評価）を選択してください:")
+            v_col1, v_col2, v_col3, v_col4 = st.columns(4)
+
+            def submit_vocab_rating(rating):
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                reps, interval, ef, next_date = calculate_sm2(
+                    int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]), rating
+                )
+                mistakes = int(v_card["mistake_count"]) + (1 if rating == 1 else 0)
+                cursor.execute('''
+                UPDATE dictionary 
+                SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
+                WHERE id = ?
+                ''', (reps, interval, ef, next_date, mistakes, int(v_card["id"])))
+                
+                # ログ記録
+                cursor.execute('''
+                INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                VALUES (?, ?, ?, ?, 'word')
+                ''', (int(v_card["id"]), rating, 1 if rating >= 3 else 0, datetime.datetime.now().isoformat()))
+                conn.commit()
+                conn.close()
+
+                st.session_state.vocab_idx += 1
+                st.session_state.vocab_revealed = False
+                st.rerun()
+
+            if v_col1.button("🔴 もう一度 (Again)\n明日復習", use_container_width=True):
+                submit_vocab_rating(1)
+            if v_col2.button("🟡 難しかった (Hard)\n短い間隔", use_container_width=True):
+                submit_vocab_rating(2)
+            if v_col3.button("🟢 覚えた (Good)\n標準間隔", use_container_width=True):
+                submit_vocab_rating(3)
+            if v_col4.button("🔵 簡単！ (Easy)\n長い間隔", use_container_width=True):
+                submit_vocab_rating(4)
+
+# 3. 🔍 単語帳＆実用辞書 (220語+)
+elif menu == "🔍 単語帳＆実用辞書 (220語+)":
+    st.title("🔍 単語帳＆実用辞書 (全221語マスター)")
+    st.caption("初級〜中級で最頻出の220語以上の単語・熟語を、カタカナ発音・複数の意味・会話例文付きで網羅しています。")
+    
+    init_dict_db()
+    
+    d_col1, d_col2 = st.columns(2)
+    with d_col1:
+        search_query = st.text_input("🔍 単語・意味・例文を検索", placeholder="例：tener, 家, 食べる, para, 旅行, ありがとう...", key="dict_search_input")
+    with d_col2:
+        sel_cat = st.selectbox("🏷️ カテゴリ・品詞フィルター", ["すべて", "基本動詞", "日常・生活", "人物・家族", "街・旅行", "形容詞", "副詞・前置詞", "挨拶・基本表現", "身体・健康", "暦・曜日", "疑問詞"], key="dict_cat_filter")
+        
+    dict_results = get_dict_df(search_query, sel_cat)
+    
+    st.caption(f"検索結果: {len(dict_results)} 件の単語が見つかりました")
+    st.divider()
+    
+    if len(dict_results) == 0:
+        st.info(f"「{search_query}」に一致する単語が見つかりませんでした。別のキーワード（スペイン語または日本語）でお試しください。")
+    else:
+        for _, entry in dict_results.iterrows():
+            with st.container():
+                # 習熟バッジ
+                reps = entry.get("repetitions", 0)
+                badge_bg = "#f1f5f9"
+                badge_color = "#475569"
+                badge_text = "未学習"
+                if reps >= 4:
+                    badge_bg = "#dcfce7"
+                    badge_color = "#166534"
+                    badge_text = f"🏆 定着 Lv{reps}"
+                elif reps > 0:
+                    badge_bg = "#e0f2fe"
+                    badge_color = "#0369a1"
+                    badge_text = f"🔄 復習中 Lv{reps}"
+
+                st.markdown(f'''
+                <div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #f59e0b; padding:18px; border-radius:10px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
+                        <span style="font-size:1.6rem; font-weight:bold; color:#1e293b;">{entry['word']}</span>
+                        <span style="font-size:1.05rem; color:#64748b; margin-left:12px;">【{entry['reading']}】</span>
+                        <span style="background-color:#fef3c7; color:#92400e; padding:3px 10px; border-radius:12px; font-size:0.85rem; font-weight:bold; margin-left:10px;">{entry['pos']}</span>
+                        <span style="background-color:{badge_bg}; color:{badge_color}; padding:3px 10px; border-radius:12px; font-size:0.85rem; font-weight:bold; margin-left:auto;">{badge_text}</span>
+                    </div>
+                    <div style="margin-top:10px; padding:12px; background-color:#fffbeb; border-radius:6px; font-size:1.05rem; line-height:1.7; color:#334155;">
+                        <strong style="color:#b45309;">📖 意味・語義:</strong><br>
+                        {entry['meanings']}
+                    </div>
+                    <div style="margin-top:12px; padding:12px; background-color:#f8fafc; border-radius:6px; font-size:1.0rem; line-height:1.8; color:#1e293b;">
+                        <strong style="color:#0284c7;">💬 実用例文:</strong><br>
+                        {entry['examples']}
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+
+# 4. 📐 文法公式＆活用マスター
 elif menu == "📐 文法公式＆活用マスター":
     st.title("📐 スペイン語 文法公式＆活用マスター")
     st.caption("文法ルール、例文の単語分解、活用形の意味と読み方をスッキリ整理した完全リファレンスです。")
@@ -306,130 +512,73 @@ elif menu == "📐 文法公式＆活用マスター":
         
         with st.expander("① 代名詞と動詞の語順公式（人に + 物を + 動詞）", expanded=True):
             st.markdown('''
-            **【公式】**  
-            `<主語>` + **(no)** + **【人に (me / te / se / le / nos / les)】** + **【物を (lo / la / los / las)】** + **【動詞】**
-            
-            - **重要ポイント**:
-              - 「〜に」と「〜を」の代名詞は、必ず**動詞の前**に置きます。
-              - 3人称同士（`le lo` や `le la`）が連続する場合は、発音の都合で `le` が必ず **`se`** に変化します（例: `se lo doy`）。
-              - 不定詞（動詞の原形）の後ろには直接くっつけられます（例: `Quiero comprártelo`）。
-            
-            ---
-            ##### 📖 例文と単語の分解解説:
-            1. **Él me lo da.**  
-               - **意味**: 彼は私にそれをくれます。  
-               - **単語分解**: **Él**（エル：[代] 彼は）＋ **me**（メ：[代] 私に）＋ **lo**（ロ：[代] それを）＋ **da**（ダ：[動] 与える/くれる [dar]）
-            
-            2. **No te lo digo.**  
-               - **意味**: 君にそれを言わないよ。  
-               - **単語分解**: **No**（ノ：[副] 〜ない）＋ **te**（テ：[代] 君に）＋ **lo**（ロ：[代] それを）＋ **digo**（ディゴ：[動] 言う [decir]）
-            
-            3. **Yo se lo explico a María.**  
-               - **意味**: 私はマリアにそれを説明します。  
-               - **単語分解**: **Yo**（ヨ：[代] 私は）＋ **se**（セ：[代] 彼女に [leの変化形]）＋ **lo**（ロ：[代] それを）＋ **explico**（エクスプリコ：[動] 説明する）＋ **a María**（ア マリア：マリアに）
-            
-            4. **Quiero comprártelo.**  
-               - **意味**: 私は君にそれを買ってあげたい。  
-               - **単語分解**: **Quiero**（キエロ：[動] 〜したい [querer]）＋ **comprar**（コンプラール：[動] 買う）＋ **te**（君に）＋ **lo**（それを）
-            ''')
+            <b>【公式】</b><br>
+            `主語` + <b>(no)</b> + <b>【人に (me / te / se / le / nos / les)】</b> + <b>【物を (lo / la / los / las)】</b> + <b>【動詞】</b><br><br>
+            ・<b>重要ポイント:</b><br>
+            - 「〜に」と「〜を」の代名詞は、必ず<b>動詞の前</b>に置きます。<br>
+            - 3人称同士（`le lo` や `le la`）が連続する場合は、発音の都合で `le` が必ず <b>`se`</b> に変化します（例: `se lo doy`）。<br>
+            - 不定詞（動詞の原形）の後ろには直接くっつけられます（例: `Quiero comprártelo`）。<br>
+            <hr>
+            <b>📖 例文と単語の分解解説:</b><br>
+            1. <b>Él me lo da.</b>（彼は私にそれをくれます）<br>
+               - 単語分解: <b>Él</b>（彼は）＋ <b>me</b>（私に）＋ <b>lo</b>（それを）＋ <b>da</b>（くれる [dar]）<br>
+            2. <b>No te lo digo.</b>（君にそれを言わないよ）<br>
+               - 単語分解: <b>No</b>（〜ない）＋ <b>te</b>（君に）＋ <b>lo</b>（それを）＋ <b>digo</b>（言う [decir]）<br>
+            3. <b>Yo se lo explico a María.</b>（私はマリアにそれを説明します）<br>
+               - 単語分解: <b>Yo</b>（私は）＋ <b>se</b>（彼女に [leの変化]）＋ <b>lo</b>（それを）＋ <b>explico</b>（説明する）＋ <b>a María</b>（マリアに）
+            ''', unsafe_allow_html=True)
             
         with st.expander("② por と para の使い分け公式", expanded=False):
             st.markdown('''
-            **【公式】**  
-            - **para** ＝ **【矢印の先 ➔ 目的・用途・期限・目的地】**（〜のために、〜に向けて、〜までに）
-            - **por** ＝ **【原因・理由・手段・通過・交換・期間】**（〜のせいで/おかげで、〜を通って、〜によって）
-            
-            ---
-            ##### 📖 例文と単語の分解解説:
-            1. **Estudio para trabajar en España.**  
-               - **意味**: 私はスペインで働くために勉強しています。（**目的**）  
-               - **単語分解**: **Estudio**（エストゥディオ：勉強する [estudiar]）＋ **para**（パラ：〜のために）＋ **trabajar**（トラバハール：働く）＋ **en España**（エン エスパーニャ：スペインで）
-            
-            2. **El tren sale para Madrid.**  
-               - **意味**: 電車はマドリードに向けて出発します。（**目的地**）  
-               - **単語分解**: **El tren**（エル トレン：[男] 電車）＋ **sale**（サレ：出発する [salir]）＋ **para Madrid**（パラ マドリード：マドリードへ向けて）
-            
-            3. **Es para mañana.**  
-               - **意味**: それは明日まで（の期限）です。（**期限**）  
-               - **単語分解**: **Es**（エス：〜である [ser]）＋ **para mañana**（パラ マニャーナ：明日までに）
-            
-            4. **Gracias por tu ayuda.**  
-               - **意味**: 手伝ってくれてありがとう。（**原因・理由**）  
-               - **単語分解**: **Gracias**（グラシアス：ありがとう）＋ **por**（ポル：〜に対して）＋ **tu ayuda**（トゥ アユダ：[女] 君の手助け）
-            
-            5. **Viajo por tren.**  
-               - **意味**: 私は電車で旅行します。（**手段**）  
-               - **単語分解**: **Viajo**（ビアホ：旅行する [viajar]）＋ **por tren**（ポル トレン：電車によって）
-            
-            6. **Camino por el parque.**  
-               - **意味**: 私は公園を通って散歩します。（**通過**）  
-               - **単語分解**: **Camino**（カミーノ：歩く [caminar]）＋ **por el parque**（ポル エル パルケ：[男] 公園を通って）
-            ''')
+            <b>【公式】</b><br>
+            - <b>para</b> ＝ <b>【矢印の先 ➔ 目的・用途・期限・目的地】</b>（〜のために、〜に向けて、〜までに）<br>
+            - <b>por</b> ＝ <b>【原因・理由・手段・通過・交換・期間】</b>（〜のせいで/おかげで、〜を通って、〜によって）<br>
+            <hr>
+            <b>📖 例文と単語の分解解説:</b><br>
+            1. <b>Estudio para trabajar en España.</b>（スペインで働くために勉強しています [目的]）<br>
+            2. <b>El tren sale para Madrid.</b>（電車はマドリードに向けて出発します [目的地]）<br>
+            3. <b>Es para mañana.</b>（それは明日までの期限です [期限]）<br>
+            4. <b>Gracias por tu ayuda.</b>（手伝ってくれてありがとう [原因・理由]）<br>
+            5. <b>Viajo por tren.</b>（電車で旅行します [手段]）<br>
+            6. <b>Camino por el parque.</b>（公園を通って散歩します [通過]）
+            ''', unsafe_allow_html=True)
 
         with st.expander("③ gustar 型動詞の文型公式（主語が後ろに来る受動構造）", expanded=False):
             st.markdown('''
-            **【公式】**  
-            (A + 人) + **【間接代名詞 (me / te / le / nos / les)】** + **【動詞 (gusta / gustan)】** + **【好きな物・事】**
-            
-            - 英語の *like* と違い、**「好きな対象」が文の主語**になります。
-            - 好きな物が**単数**または**動詞の原形**なら ➔ **gusta**
-            - 好きな物が**複数**なら ➔ **gustan**
-            
-            ---
-            ##### 📖 例文と単語の分解解説:
-            1. **Me gusta el café.**  
-               - **直訳**: コーヒーが私に好まれる。 ➔ **意味**: 私はコーヒーが好きです。  
-               - **単語分解**: **Me**（メ：私に）＋ **gusta**（グスタ：好かれている [単数]）＋ **el café**（エル カフェ：[男] コーヒー [単数主語]）
-            
-            2. **Me gustan los perros.**  
-               - **直訳**: 犬たちが私に好まれる。 ➔ **意味**: 私は犬が好きです。  
-               - **単語分解**: **Me**（メ：私に）＋ **gustan**（グスタン：好かれている [複数]）＋ **los perros**（ロス ペロス：[男] 犬たち [複数主語]）
-            
-            3. **¿Te gusta viajar?**  
-               - **意味**: 君は旅行するのが好き？  
-               - **単語分解**: **Te**（テ：君に）＋ **gusta**（グスタ：好かれている）＋ **viajar**（ビアハール：[動] 旅行すること [動詞原形は単数扱い]）
-            ''')
+            <b>【公式】</b><br>
+            (A + 人) + <b>【間接代名詞 (me / te / le / nos / les)】</b> + <b>【動詞 (gusta / gustan)】</b> + <b>【好きな物・事】</b><br><br>
+            - 英語の like と違い、<b>「好きな対象」が文の主語</b>になります。<br>
+            - 好きな物が単数または動詞原形なら ➔ <b>gusta</b><br>
+            - 好きな物が複数なら ➔ <b>gustan</b><br>
+            <hr>
+            <b>📖 例文と単語の分解解説:</b><br>
+            1. <b>Me gusta el café.</b>（私はコーヒーが好きです）<br>
+            2. <b>Me gustan los perros.</b>（私は犬が好きです）<br>
+            3. <b>¿Te gusta viajar?</b>（君は旅行するのが好き？）
+            ''', unsafe_allow_html=True)
 
         with st.expander("④ 2大過去形（点過去 vs 線過去）の使い分け公式", expanded=False):
             st.markdown('''
-            **【公式】**  
-            - **点過去** ＝ **【完了した行為・一回限りの出来事・期間が区切られた過去】**
-            - **線過去** ＝ **【過去の習慣・進行中の状態・背景描写】**
-            
-            ---
-            ##### 📖 例文と単語の分解解説:
-            1. **Ayer fui al cine.**  
-               - **意味**: 昨日、映画館に行きました。（**点過去**：昨日の1回限りの行為）  
-               - **単語分解**: **Ayer**（アジェール：昨日）＋ **fui**（フイ：行った [irの点過去1人称]）＋ **al cine**（アル シネ：映画館へ）
-            
-            2. **Cuando era niño, jugaba al fútbol.**  
-               - **意味**: 子どもの頃、私はよくサッカーをしていました。（**線過去**：昔の習慣）  
-               - **単語分解**: **Cuando**（クアンド：〜の時）＋ **era niño**（エラ ニニョ：子どもだった [ser]）＋ **jugaba**（フガバ：遊んでいた [jugar]）＋ **al fútbol**（アル フトボル：サッカーを）
-            
-            3. **Cuando veía la tele, sonó el teléfono.**  
-               - **意味**: 私がテレビを見ていた（背景）時、電話が鳴った（一瞬の割り込み）。  
-               - **単語分解**: **veía**（ベイア：見ていた [ver]）＋ **la tele**（テレビを）＋ **sonó**（ソノ：鳴った [sonar]）＋ **el teléfono**（電話が）
-            ''')
+            <b>【公式】</b><br>
+            - <b>点過去</b> ＝ <b>【完了した行為・一回限りの出来事・期間が区切られた過去】</b><br>
+            - <b>線過去</b> ＝ <b>【過去の習慣・進行中の状態・背景描写】</b><br>
+            <hr>
+            <b>📖 例文と単語の分解解説:</b><br>
+            1. <b>Ayer fui al cine.</b>（昨日、映画館に行きました [点過去]）<br>
+            2. <b>Cuando era niño, jugaba al fútbol.</b>（子どもの頃、よくサッカーをしていました [線過去]）<br>
+            3. <b>Cuando veía la tele, sonó el teléfono.</b>（テレビを見ていた時、電話が鳴った [線過去＋点過去]）
+            ''', unsafe_allow_html=True)
 
         with st.expander("⑤ 接続法（Subjuntivo）のトリガー公式", expanded=False):
             st.markdown('''
-            **【公式】**  
-            **【主節の動詞（願望・感情・疑惑・要求）】** + **que** + **【接続法動詞】**
-            
-            ---
-            ##### 📖 例文と単語の分解解説:
-            1. **Quiero que vengas a mi casa.**  
-               - **意味**: 私はあなたに私の家に来てほしい。（**願望**）  
-               - **単語分解**: **Quiero**（キエロ：私は望む）＋ **que**（〜ということを）＋ **vengas**（ベンガス：あなたが来る [venir接続法]）＋ **a mi casa**（私の家へ）
-            
-            2. **Me alegro de que estés bien.**  
-               - **意味**: あなたが元気でいてくれて嬉しいです。（**感情**）  
-               - **単語分解**: **Me alegro de**（メ アレグロ デ：嬉しく思う）＋ **que**（〜であることを）＋ **estés**（エステス：あなたが〜である [estar接続法]）＋ **bien**（元気で）
-            
-            3. **No creo que sea verdad.**  
-               - **意味**: それが本当だとは思いません。（**疑惑・否定**）  
-               - **単語分解**: **No creo**（ノ クレオ：信じない）＋ **que**（〜だとは）＋ **sea**（セア：〜である [ser接続法]）＋ **verdad**（ベルダッ(ド)：本当のこと）
-            ''')
+            <b>【公式】</b><br>
+            <b>【主節の動詞（願望・感情・疑惑・要求）】</b> + <b>que</b> + <b>【接続法動詞】</b><br>
+            <hr>
+            <b>📖 例文と単語の分解解説:</b><br>
+            1. <b>Quiero que vengas a mi casa.</b>（私はあなたに私の家に来てほしい [願望]）<br>
+            2. <b>Me alegro de que estés bien.</b>（あなたが元気でいてくれて嬉しいです [感情]）<br>
+            3. <b>No creo que sea verdad.</b>（それが本当だとは思いません [疑惑・否定]）
+            ''', unsafe_allow_html=True)
 
     with g_tab2:
         st.subheader("🔄 主要動詞の時制・活用早見表（カタカナ読み・意味付き）")
@@ -460,50 +609,9 @@ elif menu == "📐 文法公式＆活用マスター":
             pron_df = pd.DataFrame({"主語 (〜は)": ["yo (ヨ: 私は)", "tú (トゥ: 君は)", "él / ella / usted (彼/彼女/あなた)", "nosotros (ノソトロス: 私たちは)", "ellos / ustedes (彼ら/あなた方)"], "直接目的語 (〜を)": ["me (メ: 私を)", "te (テ: 君を)", "lo / la (ロ/ラ: 彼を/彼女を/それを)", "nos (ノス: 私たちを)", "los / las (ロス/ラス: 彼らを/それらを)"], "間接目的語 (〜に)": ["me (メ: 私に)", "te (テ: 君に)", "le / se (レ/セ: 彼に/彼女に/あなたに)", "nos (ノス: 私たちに)", "les / se (レス/セ: 彼らに/あなた方に)"], "再帰代名詞 (自分を)": ["me (メ: 自分を)", "te (テ: 自分を)", "se (セ: 自分を)", "nos (ノス: 自分たちを)", "se (セ: 自分たちを)"]}, index=["1人称 (私)", "2人称 (君)", "3人称 (彼/彼女/あなた)", "1人称複数 (私たち)", "3人称複数 (彼ら/あなた方)"])
             st.dataframe(pron_df, use_container_width=True)
 
-# 3. 🔍 スペイン語辞書 (単語・例文検索)
-elif menu == "🔍 スペイン語辞書 (単語・例文検索)":
-    st.title("🔍 スペイン語 実用例文つき辞書")
-    st.caption("単語の複数の意味、カタカナ発音、品詞（性別）、実際の日常会話で使える例文を確認できます。")
-    
-    init_dict_db()
-    
-    d_col1, d_col2 = st.columns(2)
-    with d_col1:
-        search_query = st.text_input("🔍 単語・意味・例文を検索", placeholder="例：tener, 家, 食べる, para, 旅行, ありがとう...", key="dict_search_input")
-    with d_col2:
-        sel_cat = st.selectbox("🏷️ 品詞フィルター", ["すべて", "動詞", "名詞", "形容詞", "前置詞", "副詞"], key="dict_cat_filter")
-        
-    dict_results = get_dict_df(search_query, sel_cat)
-    
-    st.caption(f"検索結果: {len(dict_results)} 件の単語が見つかりました")
-    st.divider()
-    
-    if len(dict_results) == 0:
-        st.info(f"「{search_query}」に一致する単語が見つかりませんでした。別のキーワード（スペイン語または日本語）でお試しください。")
-    else:
-        for _, entry in dict_results.iterrows():
-            with st.container():
-                st.markdown(f'''
-                <div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #f59e0b; padding:18px; border-radius:10px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-                    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
-                        <span style="font-size:1.6rem; font-weight:bold; color:#1e293b;">{entry['word']}</span>
-                        <span style="font-size:1.05rem; color:#64748b; margin-left:12px;">【{entry['reading']}】</span>
-                        <span style="background-color:#fef3c7; color:#92400e; padding:3px 10px; border-radius:12px; font-size:0.85rem; font-weight:bold; margin-left:auto;">{entry['pos']}</span>
-                    </div>
-                    <div style="margin-top:10px; padding:12px; background-color:#fffbeb; border-radius:6px; font-size:1.05rem; line-height:1.7; color:#334155;">
-                        <strong style="color:#b45309;">📖 意味・語義:</strong><br>
-                        {entry['meanings']}
-                    </div>
-                    <div style="margin-top:12px; padding:12px; background-color:#f8fafc; border-radius:6px; font-size:1.0rem; line-height:1.8; color:#1e293b;">
-                        <strong style="color:#0284c7;">💬 実用例文:</strong><br>
-                        {entry['examples']}
-                    </div>
-                </div>
-                ''', unsafe_allow_html=True)
-
-# 4. 📝 今日の復習・クイズ (SRS)
-elif menu == "📝 今日の復習・クイズ (SRS)":
-    st.title("📝 スペイン語 復習セッション (忘却曲線)")
+# 5. 📝 文法復習クイズ (SRS)
+elif menu == "📝 文法復習クイズ (SRS)":
+    st.title("📝 文法復習セッション (忘却曲線 SRS)")
     cards_df = get_cards_df()
     today_str = date.today().isoformat()
     
@@ -512,7 +620,7 @@ elif menu == "📝 今日の復習・クイズ (SRS)":
     ).head(20)
     
     if len(due_cards) == 0:
-        st.success("🎉 おめでとうございます！本日の復習はすべて完了しました！")
+        st.success("🎉 おめでとうございます！本日の文法復習はすべて完了しました！")
         st.balloons()
     else:
         st.caption(f"本日の復習待ちカード：残り {len(due_cards)} 問（全 {len(cards_df)} 課中）")
@@ -576,8 +684,8 @@ elif menu == "📝 今日の復習・クイズ (SRS)":
                 WHERE id = ?
                 ''', (reps, interval, ef, next_date, mistakes, int(card["id"])))
                 cursor.execute('''
-                INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                VALUES (?, ?, ?, ?, 'grammar')
                 ''', (int(card["id"]), rating, 1 if rating >= 3 else 0, datetime.datetime.now().isoformat()))
                 conn.commit()
                 conn.close()
@@ -586,61 +694,82 @@ elif menu == "📝 今日の復習・クイズ (SRS)":
                 st.session_state.show_hint = False
                 st.rerun()
 
-            if r_col1.button("🔴 もう一度 (Again)<br><small>明日復習</small>", use_container_width=True):
+            if r_col1.button("🔴 もう一度 (Again)\n明日復習", use_container_width=True):
                 submit_rating(1)
-            if r_col2.button("🟡 難しかった (Hard)<br><small>短い間隔</small>", use_container_width=True):
+            if r_col2.button("🟡 難しかった (Hard)\n短い間隔", use_container_width=True):
                 submit_rating(2)
-            if r_col3.button("🟢 ちょうど良い (Good)<br><small>標準間隔</small>", use_container_width=True):
+            if r_col3.button("🟢 ちょうど良い (Good)\n標準間隔", use_container_width=True):
                 submit_rating(3)
-            if r_col4.button("🔵 簡単！ (Easy)<br><small>長い間隔</small>", use_container_width=True):
+            if r_col4.button("🔵 簡単！ (Easy)\n長い間隔", use_container_width=True):
                 submit_rating(4)
 
-# 5. 📊 学習ダッシュボード
+# 6. 📊 学習ダッシュボード
 elif menu == "📊 学習ダッシュボード":
-    st.title("📊 学習ダッシュボード")
+    st.title("📊 学習ダッシュボード (文法 ＆ 単語)")
     cards_df = get_cards_df()
+    dict_df = get_dict_df()
     
     today_str = date.today().isoformat()
+    
+    # 文法指標
     total_cards = len(cards_df)
     due_cards = len(cards_df[cards_df["next_review_date"] <= today_str])
     mastered_cards = len(cards_df[cards_df["repetitions"] >= 4])
-    unseen_cards = len(cards_df[cards_df["repetitions"] == 0])
     
+    # 単語指標
+    total_words = len(dict_df)
+    due_words = len(dict_df[dict_df["next_review_date"] <= today_str])
+    mastered_words = len(dict_df[dict_df["repetitions"] >= 4])
+    learning_words = len(dict_df[(dict_df["repetitions"] > 0) & (dict_df["repetitions"] < 4)])
+    unseen_words = len(dict_df[dict_df["repetitions"] == 0])
+
+    st.subheader("📚 2大マスター進捗")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("📌 本日の復習待ち", f"{due_cards} 問", delta=f"{due_cards} 件" if due_cards > 0 else "完了！", delta_color="inverse")
-    col2.metric("🌱 未学習カード", f"{unseen_cards} 問")
-    col3.metric("🏆 定着済み (Lv4以上)", f"{mastered_cards} 問")
-    col4.metric("📚 カリキュラム総数", f"{total_cards} 課")
+    col1.metric("📖 文法カリキュラム", f"{total_cards} 課", delta=f"{mastered_cards} 課 定着" if mastered_cards > 0 else "学習中")
+    col2.metric("🗂️ 単語マスター語数", f"{total_words} 語", delta=f"{mastered_words} 語 定着" if mastered_words > 0 else "学習中")
+    col3.metric("📌 本日の文法復習待ち", f"{due_cards} 問")
+    col4.metric("📌 本日の単語復習待ち", f"{due_words} 語")
     
     st.divider()
+    
+    st.subheader("🎯 単語の暗記定着度 (SRS忘却曲線 ステータス)")
+    v_stat_col1, v_stat_col2, v_stat_col3 = st.columns(3)
+    v_stat_col1.metric("🌱 未学習の単語", f"{unseen_words} 語")
+    v_stat_col2.metric("🔄 復習中 (Lv1〜3)", f"{learning_words} 語")
+    v_stat_col3.metric("🏆 完全定着 (Lv4以上)", f"{mastered_words} 語")
+
+    # カテゴリ別進捗グラフ
+    st.write("")
     col_left, col_right = st.columns(2)
     with col_left:
-        st.subheader("⚠️ 苦手な項目ランキング (ミス回数順)")
-        mistake_df = cards_df[cards_df["mistake_count"] > 0].sort_values("mistake_count", ascending=False)
-        if len(mistake_df) > 0:
+        st.subheader("⚠️ 苦手な単語 (ミス回数順)")
+        mistake_words = dict_df[dict_df["mistake_count"] > 0].sort_values("mistake_count", ascending=False)
+        if len(mistake_words) > 0:
             st.dataframe(
-                mistake_df[["category", "lesson_title", "correct_answer", "mistake_count", "interval_days"]].rename(
-                    columns={"category": "カテゴリ", "lesson_title": "レッスン", "correct_answer": "正解", "mistake_count": "ミス回数", "interval_days": "復習間隔(日)"}
+                mistake_words[["word", "reading", "category", "mistake_count", "interval_days"]].rename(
+                    columns={"word": "単語", "reading": "読み", "category": "カテゴリ", "mistake_count": "ミス数", "interval_days": "間隔(日)"}
                 ),
                 use_container_width=True,
                 hide_index=True
             )
         else:
-            st.info("🎉 素晴らしい！まだミスしたカードはありません。")
-    with col_right:
-        st.subheader("🎯 カテゴリ別の学習進捗")
-        cat_progress = cards_df.groupby("category")["repetitions"].mean().round(1).reset_index()
-        cat_progress.columns = ["カテゴリ", "平均習熟レベル"]
-        st.bar_chart(cat_progress.set_index("カテゴリ"))
+            st.info("🎉 素晴らしい！まだミスのついた単語はありません。")
 
-# 6. 📚 単語・文法カード一覧
-elif menu == "📚 単語・文法カード一覧":
-    st.title("📚 カリキュラム・カード一覧")
+    with col_right:
+        st.subheader("📈 カテゴリ別 単語の習熟レベル")
+        cat_word_progress = dict_df.groupby("category")["repetitions"].mean().round(1).reset_index()
+        cat_word_progress.columns = ["カテゴリ", "平均習熟レベル"]
+        st.bar_chart(cat_word_progress.set_index("カテゴリ"))
+
+# 7. 📚 カリキュラム・単語一覧
+elif menu == "📚 カリキュラム・単語一覧":
+    st.title("📚 カリキュラム・単語データ一覧")
     cards_df = get_cards_df()
+    dict_df = get_dict_df()
     
-    tab1, tab2, tab3 = st.tabs(["📋 全113課の一覧", "➕ 新規カード追加", "⚙️ データ管理 (CSV)"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📖 文法113課 一覧", "🗂️ 単語220語+ 一覧", "➕ 新規登録", "⚙️ データ管理 (CSV)"])
     with tab1:
-        st.subheader(f"登録済みカリキュラム (全 {len(cards_df)} 課)")
+        st.subheader(f"登録済み文法カリキュラム (全 {len(cards_df)} 課)")
         st.dataframe(
             cards_df[["id", "category", "lesson_title", "title", "correct_answer", "repetitions", "interval_days", "mistake_count"]].rename(
                 columns={"id": "ID", "category": "章", "lesson_title": "レッスン名", "title": "問題", "correct_answer": "正解", "repetitions": "学習回数", "interval_days": "復習間隔(日)", "mistake_count": "ミス数"}
@@ -649,56 +778,99 @@ elif menu == "📚 単語・文法カード一覧":
             hide_index=True
         )
     with tab2:
-        st.subheader("新しいカードを追加")
-        with st.form("add_card_form"):
-            new_cat = st.selectbox("カテゴリ", list(cards_df["category"].unique()) + ["自作カスタム"])
-            new_lesson = st.text_input("レッスン名", placeholder="例：カフェでの注文フレーズ")
-            new_cont = st.text_area("解説コンテンツ", placeholder="例：カフェで注文する時は...")
-            new_title = st.text_input("問題（日本語の意味）", placeholder="例：私はコーヒーが好きです。")
-            new_sentence = st.text_input("スペイン語文（穴埋め部分は [___] と記述）", placeholder="例：Me [___] el café.")
-            new_options = st.text_input("選択肢（カンマ区切りで4つ）", placeholder="例：gusta, gusto, gustas, gustan")
-            new_correct = st.text_input("正解の単語", placeholder="例：gusta")
-            new_hint = st.text_input("ヒント", placeholder="例：主語が単数なので...")
-            new_exp = st.text_area("解説", placeholder="例：gustar動詞は〜")
-            
-            if st.form_submit_button("カードを登録する"):
-                if new_title and new_sentence and new_options and new_correct:
-                    conn = sqlite3.connect(DB_PATH)
-                    cursor = conn.cursor()
-                    today_str = date.today().isoformat()
-                    cursor.execute('''
-                    INSERT INTO cards (category, lesson_title, content, title, sentence, options, correct_answer, hint, explanation, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
-                    ''', (new_cat, new_lesson, new_cont, new_title, new_sentence, new_options, new_correct, new_hint, new_exp, today_str, today_str))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"カード「{new_title}」を追加しました！")
-                    st.rerun()
-                else:
-                    st.error("必須項目を入力してください。")
-
+        st.subheader(f"登録済み単語マスター (全 {len(dict_df)} 語)")
+        st.dataframe(
+            dict_df[["id", "word", "reading", "pos", "category", "repetitions", "interval_days", "mistake_count"]].rename(
+                columns={"id": "ID", "word": "単語", "reading": "読み", "pos": "品詞", "category": "カテゴリ", "repetitions": "学習回数", "interval_days": "間隔(日)", "mistake_count": "ミス数"}
+            ),
+            use_container_width=True,
+            hide_index=True
+        )
     with tab3:
+        st.subheader("新しいカードを追加")
+        add_type = st.radio("追加する種類", ["文法クイズカード", "単語カード"], horizontal=True)
+        if add_type == "文法クイズカード":
+            with st.form("add_card_form"):
+                new_cat = st.selectbox("カテゴリ", list(cards_df["category"].unique()) + ["自作カスタム"])
+                new_lesson = st.text_input("レッスン名", placeholder="例：カフェでの注文フレーズ")
+                new_cont = st.text_area("解説コンテンツ", placeholder="例：カフェで注文する時は...")
+                new_title = st.text_input("問題（日本語の意味）", placeholder="例：私はコーヒーが好きです。")
+                new_sentence = st.text_input("スペイン語文（穴埋め部分は [___] と記述）", placeholder="例：Me [___] el café.")
+                new_options = st.text_input("選択肢（カンマ区切りで4つ）", placeholder="例：gusta, gusto, gustas, gustan")
+                new_correct = st.text_input("正解の単語", placeholder="例：gusta")
+                new_hint = st.text_input("ヒント", placeholder="例：主語が単数なので...")
+                new_exp = st.text_area("解説", placeholder="例：gustar動詞は〜")
+                
+                if st.form_submit_button("文法カードを登録する"):
+                    if new_title and new_sentence and new_options and new_correct:
+                        conn = sqlite3.connect(DB_PATH)
+                        cursor = conn.cursor()
+                        today_str = date.today().isoformat()
+                        cursor.execute('''
+                        INSERT INTO cards (category, lesson_title, content, title, sentence, options, correct_answer, hint, explanation, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
+                        ''', (new_cat, new_lesson, new_cont, new_title, new_sentence, new_options, new_correct, new_hint, new_exp, today_str, today_str))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"カード「{new_title}」を追加しました！")
+                        st.rerun()
+                    else:
+                        st.error("必須項目を入力してください。")
+        else:
+            with st.form("add_word_form"):
+                w_word = st.text_input("スペイン語単語", placeholder="例：viajar")
+                w_reading = st.text_input("カタカナ読み", placeholder="例：ビアハール")
+                w_pos = st.text_input("品詞", placeholder="例：規則動詞 [動]")
+                w_cat = st.selectbox("カテゴリ", list(dict_df["category"].unique()) + ["カスタム"])
+                w_meanings = st.text_area("意味・語義", placeholder="例：① 旅行する、旅をする")
+                w_examples = st.text_area("例文", placeholder="例：・<b>Me gusta viajar.</b>（旅行するのが好きです）")
+
+                if st.form_submit_button("単語を登録する"):
+                    if w_word and w_reading and w_meanings:
+                        conn = sqlite3.connect(DB_PATH)
+                        cursor = conn.cursor()
+                        today_str = date.today().isoformat()
+                        now_str = datetime.datetime.now().isoformat()
+                        cursor.execute('''
+                        INSERT INTO dictionary (word, reading, pos, meanings, examples, category, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
+                        ''', (w_word, w_reading, w_pos, w_meanings, w_examples, w_cat, today_str, now_str))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"単語「{w_word}」を追加しました！")
+                        st.rerun()
+                    else:
+                        st.error("単語・読み・意味は必須です。")
+
+    with tab4:
         st.subheader("CSV エクスポート / 初期化")
-        csv_data = cards_df.to_csv(index=False).encode('utf-8_sig')
-        st.download_button(label="📥 全113課のカリキュラムをCSVでダウンロード", data=csv_data, file_name="spanish_curriculum_113.csv", mime="text/csv")
+        csv_cards = cards_df.to_csv(index=False).encode('utf-8_sig')
+        csv_dict = dict_df.to_csv(index=False).encode('utf-8_sig')
+        
+        c_dl1, c_dl2 = st.columns(2)
+        with c_dl1:
+            st.download_button(label="📥 全113課の文法カリキュラムをCSVダウンロード", data=csv_cards, file_name="spanish_grammar_113.csv", mime="text/csv")
+        with c_dl2:
+            st.download_button(label="📥 全221語の単語帳をCSVダウンロード", data=csv_dict, file_name="spanish_vocabulary_221.csv", mime="text/csv")
         
         st.write("")
         st.divider()
-        st.subheader("🔄 初期カリキュラムのリセット")
-        st.caption("全113課の公式カリキュラムデータを初期状態に再ロードします。")
-        if st.button("⚠️ 全113課の公式データを再初期化する", key="btn_reset_curriculum"):
+        st.subheader("🔄 公式初期データの完全リセット")
+        st.caption("文法113課および単語221語の公式データを初期状態に再ロードします。")
+        if st.button("⚠️ 全113課・全単語の公式データを再初期化する", key="btn_reset_all_data"):
             import generate_113_lessons
             generate_113_lessons.seed_database()
-            st.success("✅ 全113課のカリキュラムデータを再初期化しました！")
+            generate_113_lessons.seed_dictionary_database()
+            st.success("✅ 全113課カリキュラムおよび全221単語データを再初期化しました！")
             st.rerun()
 
-# 7. 📈 学習ログ・履歴分析
+# 8. 📈 学習ログ・履歴分析
 elif menu == "📈 学習ログ・履歴分析":
     st.title("📈 学習ログ・履歴分析")
     logs_df = get_logs_df()
     
     if len(logs_df) == 0:
-        st.info("まだ学習履歴がありません。「今日の復習・クイズ」で学習を開始すると、ここにグラフが表示されます。")
+        st.info("まだ学習履歴がありません。「単語フラッシュカード」や「文法復習クイズ」で学習を開始すると、ここにグラフが表示されます。")
     else:
         logs_df["date"] = pd.to_datetime(logs_df["reviewed_at"]).dt.date
         daily_stats = logs_df.groupby("date").agg(total_reviews=("id", "count"), correct_count=("is_correct", "sum")).reset_index()

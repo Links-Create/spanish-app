@@ -1327,10 +1327,55 @@ def seed_database():
 
     conn.commit()
 
-    cursor.execute("SELECT COUNT(*) FROM cards")
+def seed_dictionary_database():
+    from dictionary_data import DICTIONARY_DATA
+    print(f"Total defined words: {len(DICTIONARY_DATA)}")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP TABLE IF EXISTS dictionary")
+    cursor.execute('''
+    CREATE TABLE dictionary (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        word TEXT NOT NULL,
+        reading TEXT NOT NULL,
+        pos TEXT NOT NULL,
+        meanings TEXT NOT NULL,
+        examples TEXT NOT NULL,
+        category TEXT NOT NULL,
+        repetitions INTEGER DEFAULT 0,
+        interval_days INTEGER DEFAULT 0,
+        ease_factor REAL DEFAULT 2.5,
+        next_review_date TEXT,
+        mistake_count INTEGER DEFAULT 0,
+        created_at TEXT
+    )
+    ''')
+
+    today_str = datetime.date.today().isoformat()
+    now_str = datetime.datetime.now().isoformat()
+
+    for item in DICTIONARY_DATA:
+        cursor.execute('''
+        INSERT INTO dictionary (word, reading, pos, meanings, examples, category, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
+        ''', (
+            item[0],
+            item[1],
+            item[2],
+            item[3],
+            item[4],
+            item[5],
+            today_str,
+            now_str
+        ))
+
+    conn.commit()
+    cursor.execute("SELECT COUNT(*) FROM dictionary")
     count = cursor.fetchone()[0]
-    print(f"Successfully seeded {count} lessons into {DB_PATH}")
+    print(f"Successfully seeded {count} words into {DB_PATH}")
     conn.close()
 
 if __name__ == "__main__":
     seed_database()
+    seed_dictionary_database()
