@@ -656,7 +656,12 @@ elif menu == "⚡ 瞬間パターンプラクティス (瞬間西作文)":
             st.session_state.drill_start_time = time.time()
             st.rerun()
     else:
-        q_jp, ans_es, breakdown = drills[idx]
+        drill_item = drills[idx]
+        if len(drill_item) == 4:
+            q_jp, ans_es, reading, breakdown = drill_item
+        else:
+            q_jp, ans_es, breakdown = drill_item
+            reading = ""
         
         st.caption(f"第 {idx + 1} / {len(drills)} 問")
         st.progress((idx + 1) / len(drills))
@@ -676,13 +681,15 @@ elif menu == "⚡ 瞬間パターンプラクティス (瞬間西作文)":
                 st.rerun()
         else:
             speed_badge = "⚡ 即答！" if st.session_state.drill_elapsed < 3.0 else "🟢 Good"
+            reading_html = f'<div style="font-size:1.15rem; color:#be123c; margin:4px 0 10px 0; font-weight:bold;">【 {reading} 】</div>' if reading else ""
             drill_reveal_html = (
                 '<div style="background-color:#fff1f2; border:1px solid #fecdd3; border-left:6px solid #e11d48; padding:20px; border-radius:10px; margin-bottom:16px;">'
                 '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">'
                 '<span style="font-size:0.95rem; color:#9f1239; font-weight:bold;">🇪🇸 正解のスペイン語:</span>'
                 f'<span style="background-color:#ffe4e6; color:#be123c; padding:2px 10px; border-radius:10px; font-size:0.85rem; font-weight:bold;">⏱️ {st.session_state.drill_elapsed:.1f}秒 ({speed_badge})</span>'
                 '</div>'
-                f'<h1 style="font-size:2.4rem; color:#881337; margin:6px 0; font-weight:800;">{ans_es}</h1>'
+                f'<h1 style="font-size:2.4rem; color:#881337; margin:6px 0 2px 0; font-weight:800;">{ans_es}</h1>'
+                f'{reading_html}'
                 '<hr style="border:none; border-top:1px solid #fecdd3; margin:10px 0;">'
                 f'<div style="font-size:1.0rem; color:#334155; line-height:1.7;"><b>🔍 単語分解:</b> {breakdown}</div>'
                 '</div>'
