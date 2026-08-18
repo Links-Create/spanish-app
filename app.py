@@ -15,6 +15,34 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- カスタムスタイル (サイドバーの行間・余白拡大) ---
+st.markdown("""
+<style>
+/* サイドバーメニューの行間・余白をゆったり広げる */
+section[data-testid="stSidebar"] div[role="radiogroup"] {
+    gap: 10px !important;
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label {
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    margin-bottom: 8px !important;
+    font-size: 1.05rem !important;
+    line-height: 1.7 !important;
+    border-radius: 8px !important;
+    transition: all 0.2s ease;
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+    background-color: rgba(2, 132, 199, 0.08) !important;
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:last-child {
+    line-height: 1.7 !important;
+    padding-left: 8px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 DB_PATH = "spanish_learning.db"
 
 def init_user_state():
