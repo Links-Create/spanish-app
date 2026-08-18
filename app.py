@@ -5,6 +5,7 @@ import datetime
 from datetime import date, timedelta
 import os
 import re
+import time
 from dictionary_data import DICTIONARY_DATA
 
 # --- ページ設定 ---
@@ -266,6 +267,66 @@ def calculate_sm2(repetitions, interval_days, ease_factor, quality):
     next_date = date.today() + timedelta(days=new_interval)
     return new_reps, new_interval, new_ef, next_date.isoformat()
 
+def calculate_smart_srs(reps, interval, ease_factor, mistake_count, elapsed_sec, days_since_last_review, is_correct, pos=""):
+    """
+    想起時間(秒) + 経過日数 + 単語難易度・ミス履歴 + 正誤 を統合したAI忘却曲線アルゴリズム
+    """
+    if not is_correct:
+        new_reps = 0
+        new_interval = 1
+        new_ef = max(1.3, ease_factor - 0.20)
+        base_rating = 1
+        next_date = (date.today() + timedelta(days=1)).isoformat()
+        rating_label = "🔴 要復習 (Again: 明日復習)"
+        analysis_detail = "❌ 不正解のため、明日もう一度出題して記憶を強化します。"
+        return new_reps, new_interval, new_ef, next_date, base_rating, rating_label, analysis_detail
+
+    # 1. 想起スピード評価 (Response Time)
+    difficulty_penalty = min(0.25, mistake_count * 0.04)
+    
+    if elapsed_sec < 2.5:
+        base_rating = 4  # Easy: 即答
+        speed_badge = "⚡ 即答 (2.5秒未満)"
+    elif elapsed_sec <= 5.0:
+        base_rating = 3  # Good: スムーズ
+        speed_badge = "🟢 スムーズ (2.5〜5.0秒)"
+    else:
+        base_rating = 2  # Hard: 迷いあり
+        speed_badge = "🟡 迷いあり (5.0秒以上)"
+
+    # 2. 経過時間ボーナス (忘却耐性)
+    lapse_bonus = 1.0
+    overdue_days = max(0, days_since_last_review - interval)
+    if overdue_days > 0 and base_rating >= 3:
+        lapse_bonus = 1.0 + min(0.4, (overdue_days / max(1, interval)) * 0.15)
+
+    # 3. Ease Factor の更新
+    ef_delta = (0.1 - (5 - base_rating) * (0.08 + (5 - base_rating) * 0.02)) - difficulty_penalty
+    new_ef = max(1.3, ease_factor + ef_delta)
+
+    # 4. 復習間隔の算出
+    if reps == 0:
+        new_reps = 1
+        new_interval = 1 if base_rating <= 2 else (2 if base_rating == 3 else 3)
+    elif reps == 1:
+        new_reps = 2
+        new_interval = 2 if base_rating <= 2 else (4 if base_rating == 3 else 6)
+    else:
+        new_reps = reps + 1
+        mult = new_ef * (1.3 if base_rating == 4 else (1.0 if base_rating == 3 else 0.7)) * lapse_bonus
+        new_interval = max(1, int(round(interval * mult)))
+
+    next_date = (date.today() + timedelta(days=new_interval)).isoformat()
+    rating_label = f"{speed_badge} ➔ Lv.{new_reps} ({new_interval}日後)"
+    
+    analysis_detail = f"⏱️ 想起時間: <b>{elapsed_sec:.1f}秒</b> ({speed_badge})"
+    if lapse_bonus > 1.0:
+        analysis_detail += f" ＋ 🌟 <b>忘却耐性ボーナス(x{lapse_bonus:.2f})</b> (予定より+{overdue_days}日経過)"
+    if mistake_count > 0:
+        analysis_detail += f" ＋ ⚠️ 過去ミス({mistake_count}回)"
+
+    return new_reps, new_interval, new_ef, next_date, base_rating, rating_label, analysis_detail
+
 # --- サイドバーナビゲーション ---
 st.sidebar.title("🇪🇸 Español SRS")
 st.sidebar.caption("全113課文法 & 220語+単語忘却曲線マスター")
@@ -464,9 +525,16 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
             )
         st.markdown(card_front_html, unsafe_allow_html=True)
 
+        if "vocab_card_start_time" not in st.session_state or st.session_state.get("vocab_current_card_id") != v_card["id"]:
+            st.session_state.vocab_card_start_time = time.time()
+            st.session_state.vocab_current_card_id = int(v_card["id"])
+            st.session_state.vocab_elapsed_sec = 0.0
+
         if not st.session_state.vocab_revealed:
             btn_label = "💡 スペイン語の正解を見る" if is_j_to_s else "💡 意味と例文をめくる (答えを見る)"
             if st.button(btn_label, use_container_width=True, type="primary"):
+                elapsed = max(0.1, round(time.time() - st.session_state.vocab_card_start_time, 1))
+                st.session_state.vocab_elapsed_sec = elapsed
                 st.session_state.vocab_revealed = True
                 st.rerun()
         else:
@@ -503,43 +571,92 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
             )
             st.markdown(reveal_html, unsafe_allow_html=True)
 
-            st.markdown("##### 🧠 記憶の定着度（自己評価）を選択してください:")
-            v_col1, v_col2, v_col3, v_col4 = st.columns(4)
+            # 経過日数の計算
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT reviewed_at FROM study_logs WHERE card_id = ? AND item_type = 'word' ORDER BY id DESC LIMIT 1", (int(v_card["id"]),))
+            last_rev_row = c.fetchone()
+            conn.close()
+            
+            days_since = int(v_card["interval_days"])
+            if last_rev_row and last_rev_row[0]:
+                try:
+                    last_rev_dt = datetime.datetime.fromisoformat(last_rev_row[0]).date()
+                    days_since = (date.today() - last_rev_dt).days
+                except Exception:
+                    pass
 
-            def submit_vocab_rating(rating):
+            elapsed_sec = float(st.session_state.get("vocab_elapsed_sec", 3.0))
+
+            # 正解時＆不正解時の自動忘却曲線計算
+            s_reps, s_interval, s_ef, s_next_date, s_rating, s_label, s_detail = calculate_smart_srs(
+                int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]),
+                int(v_card["mistake_count"]), elapsed_sec, days_since, is_correct=True, pos=v_card["pos"]
+            )
+            f_reps, f_interval, f_ef, f_next_date, f_rating, f_label, f_detail = calculate_smart_srs(
+                int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]),
+                int(v_card["mistake_count"]), elapsed_sec, days_since, is_correct=False, pos=v_card["pos"]
+            )
+
+            # AI忘却曲線・自動判定フィードバックUI
+            smart_feedback_html = (
+                '<div style="background-color:#f0fdf4; border:1px solid #bbf7d0; border-left:6px solid #16a34a; padding:16px 20px; border-radius:10px; margin-bottom:18px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">'
+                '<span style="font-weight:bold; color:#15803d; font-size:1.1rem;">🧠 AI忘却曲線・自動定着度判定</span>'
+                f'<span style="background-color:#dcfce7; color:#166534; padding:3px 12px; border-radius:14px; font-weight:bold; font-size:0.9rem;">{s_label}</span>'
+                '</div>'
+                f'<div style="font-size:0.95rem; color:#334155; line-height:1.7;">{s_detail}</div>'
+                '</div>'
+            )
+            st.markdown(smart_feedback_html, unsafe_allow_html=True)
+
+            def submit_vocab_record(reps, interval, ef, next_date, mistakes_delta, rating, is_correct):
                 init_logs_db()
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
-                reps, interval, ef, next_date = calculate_sm2(
-                    int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]), rating
-                )
-                mistakes = int(v_card["mistake_count"]) + (1 if rating == 1 else 0)
+                new_mistakes = max(0, int(v_card["mistake_count"]) + mistakes_delta)
                 cursor.execute('''
                 UPDATE dictionary 
                 SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
                 WHERE id = ?
-                ''', (reps, interval, ef, next_date, mistakes, int(v_card["id"])))
+                ''', (reps, interval, ef, next_date, new_mistakes, int(v_card["id"])))
                 
-                # ログ記録
                 cursor.execute('''
                 INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
                 VALUES (?, ?, ?, ?, 'word')
-                ''', (int(v_card["id"]), rating, 1 if rating >= 3 else 0, datetime.datetime.now().isoformat()))
+                ''', (int(v_card["id"]), rating, is_correct, datetime.datetime.now().isoformat()))
                 conn.commit()
                 conn.close()
 
                 st.session_state.vocab_idx += 1
                 st.session_state.vocab_revealed = False
+                st.session_state.vocab_card_start_time = time.time()
                 st.rerun()
 
-            if v_col1.button("🔴 もう一度 (Again)\n明日復習", use_container_width=True):
-                submit_vocab_rating(1)
-            if v_col2.button("🟡 難しかった (Hard)\n短い間隔", use_container_width=True):
-                submit_vocab_rating(2)
-            if v_col3.button("🟢 覚えた (Good)\n標準間隔", use_container_width=True):
-                submit_vocab_rating(3)
-            if v_col4.button("🔵 簡単！ (Easy)\n長い間隔", use_container_width=True):
-                submit_vocab_rating(4)
+            # ワンタップ操作ボタン (スマート自動判定)
+            ans_col1, ans_col2 = st.columns([1.5, 1])
+            with ans_col1:
+                if st.button(f"⭕️ 分かった！正解（{s_interval}日後に再出題 ➡️）", type="primary", use_container_width=True):
+                    submit_vocab_record(s_reps, s_interval, s_ef, s_next_date, 0, s_rating, 1)
+            with ans_col2:
+                if st.button("❌ 分からなかった（明日復習）", use_container_width=True):
+                    submit_vocab_record(f_reps, f_interval, f_ef, f_next_date, 1, f_rating, 0)
+
+            # 手動上書き用エキスパンダー
+            with st.expander("⚙️ 手動で評価を直接上書きする場合 (従来の4段階評価)"):
+                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+                if m_col1.button("🔴 もう一度 (1)", key="m_rate_1", use_container_width=True):
+                    m_reps, m_inv, m_ef, m_date = calculate_sm2(int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]), 1)
+                    submit_vocab_record(m_reps, m_inv, m_ef, m_date, 1, 1, 0)
+                if m_col2.button("🟡 難しかった (2)", key="m_rate_2", use_container_width=True):
+                    m_reps, m_inv, m_ef, m_date = calculate_sm2(int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]), 2)
+                    submit_vocab_record(m_reps, m_inv, m_ef, m_date, 0, 2, 1)
+                if m_col3.button("🟢 覚えた (3)", key="m_rate_3", use_container_width=True):
+                    m_reps, m_inv, m_ef, m_date = calculate_sm2(int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]), 3)
+                    submit_vocab_record(m_reps, m_inv, m_ef, m_date, 0, 3, 1)
+                if m_col4.button("🔵 簡単！ (4)", key="m_rate_4", use_container_width=True):
+                    m_reps, m_inv, m_ef, m_date = calculate_sm2(int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]), 4)
+                    submit_vocab_record(m_reps, m_inv, m_ef, m_date, 0, 4, 1)
 
 # 3. 🔍 単語帳＆実用辞書 (220語+)
 elif menu == "🔍 単語帳＆実用辞書 (220語+)":
@@ -751,11 +868,17 @@ elif menu == "📝 文法復習クイズ (SRS)":
         else:
             st.info(f"💡 ヒント: {card['hint']}")
             
+        if "quiz_start_time" not in st.session_state or st.session_state.get("quiz_current_card_id") != card["id"]:
+            st.session_state.quiz_start_time = time.time()
+            st.session_state.quiz_current_card_id = int(card["id"])
+            st.session_state.quiz_elapsed_sec = 0.0
+
         st.write("")
         if not st.session_state.answered:
             cols = st.columns(len(options))
             for i, opt in enumerate(options):
                 if cols[i].button(f"{i+1}. {opt}", key=f"quiz_opt_{i}", use_container_width=True):
+                    st.session_state.quiz_elapsed_sec = max(0.1, round(time.time() - st.session_state.quiz_start_time, 1))
                     st.session_state.answered = True
                     st.session_state.selected_opt = opt
                     st.session_state.is_correct = (opt.strip().lower() == card["correct_answer"].strip().lower())
@@ -766,45 +889,87 @@ elif menu == "📝 文法復習クイズ (SRS)":
             else:
                 st.error(f"❌ 不正解！ (あなたの選択: {st.session_state.selected_opt} ／ 正解: {card['correct_answer']})")
                 
-            exp_html = f'<div style="background-color:#fff7ed; border-left:4px solid #f97316; padding:12px; border-radius:6px;"><strong>💡 解説:</strong><br>{card["explanation"]}</div>'
+            exp_html = f'<div style="background-color:#fff7ed; border-left:4px solid #f97316; padding:12px; border-radius:6px; margin-bottom:14px;"><strong>💡 解説:</strong><br>{card["explanation"]}</div>'
             st.markdown(exp_html, unsafe_allow_html=True)
             
-            st.write("")
-            st.markdown("##### 🧠 記憶の定着度（自己評価）を選択してください:")
-            r_col1, r_col2, r_col3, r_col4 = st.columns(4)
+            # 経過日数の計算
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT reviewed_at FROM study_logs WHERE card_id = ? AND item_type = 'grammar' ORDER BY id DESC LIMIT 1", (int(card["id"]),))
+            last_rev_row = c.fetchone()
+            conn.close()
             
-            def submit_rating(rating):
+            days_since = int(card["interval_days"])
+            if last_rev_row and last_rev_row[0]:
+                try:
+                    last_rev_dt = datetime.datetime.fromisoformat(last_rev_row[0]).date()
+                    days_since = (date.today() - last_rev_dt).days
+                except Exception:
+                    pass
+
+            elapsed_quiz_sec = float(st.session_state.get("quiz_elapsed_sec", 3.0))
+
+            # スマートSRS計算
+            g_reps, g_interval, g_ef, g_next_date, g_rating, g_label, g_detail = calculate_smart_srs(
+                int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]),
+                int(card["mistake_count"]), elapsed_quiz_sec, days_since, is_correct=st.session_state.is_correct
+            )
+
+            # AI解析フィードバックUI
+            q_border_color = "#16a34a" if st.session_state.is_correct else "#dc2626"
+            q_bg_color = "#f0fdf4" if st.session_state.is_correct else "#fef2f2"
+            q_text_color = "#15803d" if st.session_state.is_correct else "#b91c1c"
+            
+            g_feedback_html = (
+                f'<div style="background-color:{q_bg_color}; border:1px solid #e2e8f0; border-left:6px solid {q_border_color}; padding:14px 18px; border-radius:8px; margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">'
+                f'<span style="font-weight:bold; color:{q_text_color}; font-size:1.05rem;">🧠 AI忘却曲線判定:</span>'
+                f'<span style="font-weight:bold; font-size:0.9rem; color:{q_text_color};">{g_label}</span>'
+                '</div>'
+                f'<div style="font-size:0.95rem; color:#334155; line-height:1.6;">{g_detail}</div>'
+                '</div>'
+            )
+            st.markdown(g_feedback_html, unsafe_allow_html=True)
+            
+            def submit_grammar_record(reps, interval, ef, next_date, mistakes_delta, rating, is_correct):
                 init_logs_db()
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
-                reps, interval, ef, next_date = calculate_sm2(
-                    int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]), rating
-                )
-                mistakes = int(card["mistake_count"]) + (1 if rating == 1 else 0)
+                new_mistakes = max(0, int(card["mistake_count"]) + mistakes_delta)
                 cursor.execute('''
                 UPDATE cards 
                 SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
                 WHERE id = ?
-                ''', (reps, interval, ef, next_date, mistakes, int(card["id"])))
+                ''', (reps, interval, ef, next_date, new_mistakes, int(card["id"])))
                 cursor.execute('''
                 INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
                 VALUES (?, ?, ?, ?, 'grammar')
-                ''', (int(card["id"]), rating, 1 if rating >= 3 else 0, datetime.datetime.now().isoformat()))
+                ''', (int(card["id"]), rating, is_correct, datetime.datetime.now().isoformat()))
                 conn.commit()
                 conn.close()
                 st.session_state.card_index += 1
                 st.session_state.answered = False
                 st.session_state.show_hint = False
+                st.session_state.quiz_start_time = time.time()
                 st.rerun()
 
-            if r_col1.button("🔴 もう一度 (Again)\n明日復習", use_container_width=True):
-                submit_rating(1)
-            if r_col2.button("🟡 難しかった (Hard)\n短い間隔", use_container_width=True):
-                submit_rating(2)
-            if r_col3.button("🟢 ちょうど良い (Good)\n標準間隔", use_container_width=True):
-                submit_rating(3)
-            if r_col4.button("🔵 簡単！ (Easy)\n長い間隔", use_container_width=True):
-                submit_rating(4)
+            if st.button(f"次の問題に進む（{g_interval}日後に再出題 ➡️）", type="primary", use_container_width=True):
+                submit_grammar_record(g_reps, g_interval, g_ef, g_next_date, 0 if st.session_state.is_correct else 1, g_rating, 1 if st.session_state.is_correct else 0)
+
+            with st.expander("⚙️ 手動で評価を直接上書きする場合 (4段階評価)"):
+                r_col1, r_col2, r_col3, r_col4 = st.columns(4)
+                if r_col1.button("🔴 もう一度 (1)", key="g_m_1", use_container_width=True):
+                    m_r, m_i, m_ef, m_d = calculate_sm2(int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]), 1)
+                    submit_grammar_record(m_r, m_i, m_ef, m_d, 1, 1, 0)
+                if r_col2.button("🟡 難しかった (2)", key="g_m_2", use_container_width=True):
+                    m_r, m_i, m_ef, m_d = calculate_sm2(int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]), 2)
+                    submit_grammar_record(m_r, m_i, m_ef, m_d, 0, 2, 1)
+                if r_col3.button("🟢 ちょうど良い (3)", key="g_m_3", use_container_width=True):
+                    m_r, m_i, m_ef, m_d = calculate_sm2(int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]), 3)
+                    submit_grammar_record(m_r, m_i, m_ef, m_d, 0, 3, 1)
+                if r_col4.button("🔵 簡単！ (4)", key="g_m_4", use_container_width=True):
+                    m_r, m_i, m_ef, m_d = calculate_sm2(int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]), 4)
+                    submit_grammar_record(m_r, m_i, m_ef, m_d, 0, 4, 1)
 
 # 6. 📊 学習ダッシュボード
 elif menu == "📊 学習ダッシュボード":
