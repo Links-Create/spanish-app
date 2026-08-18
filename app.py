@@ -69,6 +69,7 @@ def init_dict_db():
         meanings TEXT NOT NULL,
         examples TEXT NOT NULL,
         category TEXT NOT NULL,
+        conjugation TEXT,
         repetitions INTEGER DEFAULT 0,
         interval_days INTEGER DEFAULT 0,
         ease_factor REAL DEFAULT 2.5,
@@ -77,14 +78,20 @@ def init_dict_db():
         created_at TEXT
     )
     ''')
-    # Check if repetitions column exists
     cursor.execute("PRAGMA table_info(dictionary)")
     cols = [c[1] for c in cursor.fetchall()]
+    if "conjugation" not in cols:
+        try:
+            cursor.execute("ALTER TABLE dictionary ADD COLUMN conjugation TEXT")
+        except Exception:
+            pass
+    cursor.execute("SELECT COUNT(*) FROM dictionary WHERE conjugation IS NOT NULL AND conjugation != ''")
+    valid_conj_count = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM dictionary")
     count = cursor.fetchone()[0]
     conn.close()
 
-    if count < len(DICTIONARY_DATA) or "repetitions" not in cols:
+    if count < len(DICTIONARY_DATA) or valid_conj_count < 100 or "repetitions" not in cols:
         import generate_113_lessons
         generate_113_lessons.seed_dictionary_database()
 
@@ -413,12 +420,25 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
                 st.session_state.vocab_revealed = True
                 st.rerun()
         else:
+            conj_section = ""
+            if pd.notna(v_card.get("conjugation")) and str(v_card.get("conjugation")).strip():
+                conj_section = f'''
+                <hr style="border:none; border-top:1px solid #bfdbfe; margin:14px 0;">
+                <div style="background-color:#eff6ff; border:1px solid #bfdbfe; border-left:6px solid #2563eb; padding:14px 18px; border-radius:8px;">
+                    <h4 style="color:#1d4ed8; margin-top:0; margin-bottom:8px;">🔄 人称変化（全6人称）/ 性数変化:</h4>
+                    <div style="font-size:1.05rem; line-height:1.9; color:#1e293b;">
+                        {v_card['conjugation']}
+                    </div>
+                </div>
+                '''
+
             st.markdown(f'''
             <div style="background-color:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:20px; border-radius:10px; margin-bottom:16px;">
                 <h4 style="color:#b45309; margin-top:0;">📖 日本語の意味・語義:</h4>
                 <div style="font-size:1.15rem; line-height:1.8; color:#1e293b;">
                     {v_card['meanings']}
                 </div>
+                {conj_section}
                 <hr style="border:none; border-top:1px solid #fde68a; margin:14px 0;">
                 <h4 style="color:#0284c7; margin-top:0;">💬 実際の会話例文:</h4>
                 <div style="font-size:1.05rem; line-height:1.8; color:#1e293b;">
@@ -502,6 +522,15 @@ elif menu == "🔍 単語帳＆実用辞書 (220語+)":
                     badge_color = "#0369a1"
                     badge_text = f"🔄 復習中 Lv{reps}"
 
+                conj_entry_section = ""
+                if pd.notna(entry.get("conjugation")) and str(entry.get("conjugation")).strip():
+                    conj_entry_section = f'''
+                    <div style="margin-top:10px; padding:12px; background-color:#eff6ff; border-radius:6px; font-size:0.95rem; line-height:1.8; color:#1e293b;">
+                        <strong style="color:#1d4ed8;">🔄 人称変化（全6人称）/ 性数変化:</strong><br>
+                        {entry['conjugation']}
+                    </div>
+                    '''
+
                 st.markdown(f'''
                 <div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #f59e0b; padding:18px; border-radius:10px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
                     <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
@@ -514,6 +543,7 @@ elif menu == "🔍 単語帳＆実用辞書 (220語+)":
                         <strong style="color:#b45309;">📖 意味・語義:</strong><br>
                         {entry['meanings']}
                     </div>
+                    {conj_entry_section}
                     <div style="margin-top:12px; padding:12px; background-color:#f8fafc; border-radius:6px; font-size:1.0rem; line-height:1.8; color:#1e293b;">
                         <strong style="color:#0284c7;">💬 実用例文:</strong><br>
                         {entry['examples']}
@@ -845,6 +875,7 @@ elif menu == "📚 カリキュラム・単語一覧":
                 w_pos = st.text_input("品詞", placeholder="例：規則動詞 [動]")
                 w_cat = st.selectbox("カテゴリ", list(dict_df["category"].unique()) + ["カスタム"])
                 w_meanings = st.text_area("意味・語義", placeholder="例：① 旅行する、旅をする")
+                w_conj = st.text_area("人称変化・活用（全6人称）/ 性数変化（任意）", placeholder="例：<b>【現在形】</b> Yo: viajo, Tú: viajas, Él: viaja, Nosotros: viajamos, Vosotros: viajáis, Ellos: viajan")
                 w_examples = st.text_area("例文", placeholder="例：・<b>Me gusta viajar.</b>（旅行するのが好きです）")
 
                 if st.form_submit_button("単語を登録する"):
@@ -854,9 +885,9 @@ elif menu == "📚 カリキュラム・単語一覧":
                         today_str = date.today().isoformat()
                         now_str = datetime.datetime.now().isoformat()
                         cursor.execute('''
-                        INSERT INTO dictionary (word, reading, pos, meanings, examples, category, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
-                        ''', (w_word, w_reading, w_pos, w_meanings, w_examples, w_cat, today_str, now_str))
+                        INSERT INTO dictionary (word, reading, pos, meanings, examples, category, conjugation, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
+                        ''', (w_word, w_reading, w_pos, w_meanings, w_examples, w_cat, w_conj, today_str, now_str))
                         conn.commit()
                         conn.close()
                         st.success(f"単語「{w_word}」を追加しました！")

@@ -1343,6 +1343,7 @@ def seed_dictionary_database():
         meanings TEXT NOT NULL,
         examples TEXT NOT NULL,
         category TEXT NOT NULL,
+        conjugation TEXT,
         repetitions INTEGER DEFAULT 0,
         interval_days INTEGER DEFAULT 0,
         ease_factor REAL DEFAULT 2.5,
@@ -1356,9 +1357,10 @@ def seed_dictionary_database():
     now_str = datetime.datetime.now().isoformat()
 
     for item in DICTIONARY_DATA:
+        conj_text = item[6] if len(item) > 6 else ""
         cursor.execute('''
-        INSERT INTO dictionary (word, reading, pos, meanings, examples, category, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
+        INSERT INTO dictionary (word, reading, pos, meanings, examples, category, conjugation, repetitions, interval_days, ease_factor, next_review_date, mistake_count, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, 0, ?)
         ''', (
             item[0],
             item[1],
@@ -1366,6 +1368,7 @@ def seed_dictionary_database():
             item[3],
             item[4],
             item[5],
+            conj_text,
             today_str,
             now_str
         ))
@@ -1373,7 +1376,7 @@ def seed_dictionary_database():
     conn.commit()
     cursor.execute("SELECT COUNT(*) FROM dictionary")
     count = cursor.fetchone()[0]
-    print(f"Successfully seeded {count} words into {DB_PATH}")
+    print(f"Successfully seeded {count} words with conjugations into {DB_PATH}")
     conn.close()
 
 if __name__ == "__main__":
