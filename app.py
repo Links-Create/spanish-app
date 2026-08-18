@@ -101,9 +101,42 @@ def get_dict_df(query="", category="すべて"):
     conn.close()
     return df
 
-def get_cards_df():
+def init_cards_db():
     if not os.path.exists(DB_PATH):
-        return pd.DataFrame()
+        import generate_113_lessons
+        generate_113_lessons.seed_database()
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL,
+        lesson_title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        title TEXT NOT NULL,
+        sentence TEXT NOT NULL,
+        options TEXT NOT NULL,
+        correct_answer TEXT NOT NULL,
+        hint TEXT,
+        explanation TEXT,
+        repetitions INTEGER DEFAULT 0,
+        interval_days INTEGER DEFAULT 0,
+        ease_factor REAL DEFAULT 2.5,
+        next_review_date TEXT,
+        mistake_count INTEGER DEFAULT 0,
+        created_at TEXT
+    )
+    ''')
+    cursor.execute("SELECT COUNT(*) FROM cards")
+    count = cursor.fetchone()[0]
+    conn.close()
+    if count < 113:
+        import generate_113_lessons
+        generate_113_lessons.seed_database()
+
+def get_cards_df():
+    init_cards_db()
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM cards", conn)
     conn.close()
@@ -648,6 +681,16 @@ elif menu == "📚 単語・文法カード一覧":
         st.subheader("CSV エクスポート / 初期化")
         csv_data = cards_df.to_csv(index=False).encode('utf-8_sig')
         st.download_button(label="📥 全113課のカリキュラムをCSVでダウンロード", data=csv_data, file_name="spanish_curriculum_113.csv", mime="text/csv")
+        
+        st.write("")
+        st.divider()
+        st.subheader("🔄 初期カリキュラムのリセット")
+        st.caption("全113課の公式カリキュラムデータを初期状態に再ロードします。")
+        if st.button("⚠️ 全113課の公式データを再初期化する", key="btn_reset_curriculum"):
+            import generate_113_lessons
+            generate_113_lessons.seed_database()
+            st.success("✅ 全113課のカリキュラムデータを再初期化しました！")
+            st.rerun()
 
 # 7. 📈 学習ログ・履歴分析
 elif menu == "📈 学習ログ・履歴分析":
