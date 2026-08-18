@@ -168,9 +168,9 @@ def get_cards_df():
             df["ease_factor"] = pd.to_numeric(df["ease_factor"], errors="coerce").fillna(2.5).astype(float)
     return df
 
-def get_logs_df():
+def init_logs_db():
     if not os.path.exists(DB_PATH):
-        return pd.DataFrame()
+        return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -183,7 +183,21 @@ def get_logs_df():
         item_type TEXT DEFAULT 'grammar'
     )
     ''')
+    cursor.execute("PRAGMA table_info(study_logs)")
+    cols = [c[1] for c in cursor.fetchall()]
+    if "item_type" not in cols:
+        try:
+            cursor.execute("ALTER TABLE study_logs ADD COLUMN item_type TEXT DEFAULT 'grammar'")
+        except Exception:
+            pass
     conn.commit()
+    conn.close()
+
+def get_logs_df():
+    init_logs_db()
+    if not os.path.exists(DB_PATH):
+        return pd.DataFrame()
+    conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM study_logs", conn)
     conn.close()
     if not df.empty:
@@ -411,6 +425,7 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
             v_col1, v_col2, v_col3, v_col4 = st.columns(4)
 
             def submit_vocab_rating(rating):
+                init_logs_db()
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
                 reps, interval, ef, next_date = calculate_sm2(
@@ -672,6 +687,7 @@ elif menu == "📝 文法復習クイズ (SRS)":
             r_col1, r_col2, r_col3, r_col4 = st.columns(4)
             
             def submit_rating(rating):
+                init_logs_db()
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
                 reps, interval, ef, next_date = calculate_sm2(
