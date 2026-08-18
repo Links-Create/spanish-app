@@ -184,7 +184,7 @@ if menu == "📖 学習レッスン (教科書・解説)":
         if last_saved > 0 and st.session_state.current_lesson_idx == last_saved:
             st.info(f"📍 **前回の続き（第 {last_saved + 1} 課）から再開しています")
         
-        c_cat, c_les = st.columns()
+        c_cat, c_les = st.columns(2)
         with c_cat:
             categories = list(cards_df["category"].unique())
             cat_idx = categories.index(card["category"]) if card["category"] in categories else 0
@@ -206,7 +206,7 @@ if menu == "📖 学習レッスン (教科書・解説)":
                 save_last_lesson_idx(int(target_idx))
                 st.rerun()
 
-        nav_prev, nav_info, nav_next = st.columns()
+        nav_prev, nav_info, nav_next = st.columns(3)
         with nav_prev:
             if st.button("⬅️ 前のレッスン", disabled=(st.session_state.current_lesson_idx == 0), use_container_width=True, key="btn_nav_prev_top"):
                 st.session_state.current_lesson_idx -= 1
@@ -249,7 +249,7 @@ if menu == "📖 学習レッスン (教科書・解説)":
                 st.info(f"💡 **解説**: {card['explanation']}")
 
         st.divider()
-        b_prev, b_spacer, b_next = st.columns()
+        b_prev, b_spacer, b_next = st.columns(3)
         with b_prev:
             if st.button("⬅️ 前のレッスンに戻る", disabled=(st.session_state.current_lesson_idx == 0), use_container_width=True, key="btn_nav_prev_bottom"):
                 st.session_state.current_lesson_idx -= 1
@@ -434,7 +434,7 @@ elif menu == "🔍 スペイン語辞書 (単語・例文検索)":
     
     init_dict_db()
     
-    d_col1, d_col2 = st.columns()
+    d_col1, d_col2 = st.columns(2)
     with d_col1:
         search_query = st.text_input("🔍 単語・意味・例文を検索", placeholder="例：tener, 家, 食べる, para, 旅行, ありがとう...", key="dict_search_input")
     with d_col2:
