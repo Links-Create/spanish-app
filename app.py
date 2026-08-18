@@ -85,13 +85,15 @@ def init_dict_db():
             cursor.execute("ALTER TABLE dictionary ADD COLUMN conjugation TEXT")
         except Exception:
             pass
+    cursor.execute("SELECT COUNT(*) FROM dictionary WHERE examples LIKE '%単語分解%'")
+    breakdown_count = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM dictionary WHERE conjugation IS NOT NULL AND conjugation != ''")
     valid_conj_count = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM dictionary")
     count = cursor.fetchone()[0]
     conn.close()
 
-    if count < len(DICTIONARY_DATA) or valid_conj_count < 100 or "repetitions" not in cols:
+    if count < len(DICTIONARY_DATA) or valid_conj_count < 100 or breakdown_count < 100 or "repetitions" not in cols:
         import generate_113_lessons
         generate_113_lessons.seed_dictionary_database()
 
@@ -360,13 +362,15 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
     dict_df = get_dict_df()
     today_str = date.today().isoformat()
 
-    # カテゴリフィルター
+    # カテゴリ・出題方向・出題範囲フィルター
     vocab_categories = ["すべて"] + list(dict_df["category"].unique())
-    col_filter1, col_filter2 = st.columns([1, 1])
+    col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
     with col_filter1:
-        sel_vocab_cat = st.selectbox("🏷️ 学習カテゴリーを選択", vocab_categories, key="vocab_srs_cat")
+        sel_vocab_cat = st.selectbox("🏷️ 学習カテゴリー", vocab_categories, key="vocab_srs_cat")
     with col_filter2:
-        study_mode = st.selectbox("🔄 学習出題モード", ["本日の復習待ち ＋ 未学習（推奨）", "全単語からランダム特訓", "苦手単語（ミス多数）集中特訓"], key="vocab_study_mode")
+        study_direction = st.selectbox("🔄 出題の向き", ["🇪🇸 西 ➔ 🇯🇵 日 (インプット)", "🇯🇵 日 ➔ 🇪🇸 西 (アウトプット特訓)"], key="vocab_direction")
+    with col_filter3:
+        study_mode = st.selectbox("🎯 出題範囲", ["本日の復習待ち ＋ 未学習（推奨）", "全単語からランダム特訓", "苦手単語（ミス多数）集中特訓"], key="vocab_study_mode")
 
     filtered_df = dict_df if sel_vocab_cat == "すべて" else dict_df[dict_df["category"] == sel_vocab_cat]
 
@@ -398,26 +402,56 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
         if v_card["repetitions"] >= 4:
             status_label = f"🏆 定着済み (Lv{v_card['repetitions']} / 間隔:{v_card['interval_days']}日)"
 
-        card_front_html = (
-            '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0284c7; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
-            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
-            f'<span style="background-color:#e0f2fe; color:#0369a1; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{v_card["category"]}</span>'
-            f'<span style="font-size:0.9rem; color:#64748b;">{status_label}</span>'
-            '</div>'
-            '<div style="text-align:center; padding:20px 0;">'
-            f'<h1 style="font-size:3.2rem; color:#0f172a; margin:0; font-weight:800; letter-spacing:0.02em;">{v_card["word"]}</h1>'
-            f'<div style="font-size:1.25rem; color:#64748b; margin-top:8px;">【 {v_card["reading"]} 】</div>'
-            f'<div style="font-size:1.0rem; color:#0284c7; font-weight:bold; margin-top:4px;">{v_card["pos"]}</div>'
-            '</div>'
-            '</div>'
-        )
+        is_j_to_s = ("日 ➔ 🇪🇸 西" in study_direction)
+
+        if not is_j_to_s:
+            # 🇪🇸 西 ➔ 🇯🇵 日
+            card_front_html = (
+                '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0284c7; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
+                f'<span style="background-color:#e0f2fe; color:#0369a1; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{v_card["category"]}</span>'
+                f'<span style="font-size:0.9rem; color:#64748b;">{status_label}</span>'
+                '</div>'
+                '<div style="text-align:center; padding:20px 0;">'
+                f'<h1 style="font-size:3.2rem; color:#0f172a; margin:0; font-weight:800; letter-spacing:0.02em;">{v_card["word"]}</h1>'
+                f'<div style="font-size:1.25rem; color:#64748b; margin-top:8px;">【 {v_card["reading"]} 】</div>'
+                f'<div style="font-size:1.0rem; color:#0284c7; font-weight:bold; margin-top:4px;">{v_card["pos"]}</div>'
+                '</div>'
+                '</div>'
+            )
+        else:
+            # 🇯🇵 日 ➔ 🇪🇸 西
+            card_front_html = (
+                '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #ea580c; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
+                f'<span style="background-color:#ffedd5; color:#c2410c; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{v_card["category"]} (日➔西 アウトプット特訓)</span>'
+                f'<span style="font-size:0.9rem; color:#64748b;">{status_label}</span>'
+                '</div>'
+                '<div style="padding:12px 0;">'
+                '<div style="font-size:0.95rem; color:#ea580c; font-weight:bold; margin-bottom:10px;">🤔 この日本語の意味に対応するスペイン語を思い出してください：</div>'
+                f'<div style="font-size:1.35rem; font-weight:bold; color:#1e293b; line-height:1.7; background-color:#fff7ed; padding:18px; border-radius:8px; border-left:5px solid #ea580c;">{v_card["meanings"]}</div>'
+                f'<div style="font-size:1.0rem; color:#64748b; margin-top:12px;">品詞ヒント: <b style="color:#0284c7;">{v_card["pos"]}</b></div>'
+                '</div>'
+                '</div>'
+            )
         st.markdown(card_front_html, unsafe_allow_html=True)
 
         if not st.session_state.vocab_revealed:
-            if st.button("💡 意味と例文をめくる (答えを見る)", use_container_width=True, type="primary"):
+            btn_label = "💡 スペイン語の正解を見る" if is_j_to_s else "💡 意味と例文をめくる (答えを見る)"
+            if st.button(btn_label, use_container_width=True, type="primary"):
                 st.session_state.vocab_revealed = True
                 st.rerun()
         else:
+            header_answer = ""
+            if is_j_to_s:
+                header_answer = (
+                    '<div style="background-color:#ffffff; border:2px solid #0284c7; padding:20px; border-radius:10px; text-align:center; margin-bottom:16px; box-shadow:0 2px 4px rgba(0,0,0,0.05);">'
+                    '<div style="font-size:0.95rem; color:#0284c7; font-weight:bold;">🇪🇸 正解のスペイン語単語</div>'
+                    f'<h1 style="font-size:3.2rem; color:#0f172a; margin:6px 0; font-weight:800;">{v_card["word"]}</h1>'
+                    f'<div style="font-size:1.25rem; color:#64748b;">【 {v_card["reading"]} 】 <span style="color:#0284c7; font-weight:bold; margin-left:8px;">{v_card["pos"]}</span></div>'
+                    '</div>'
+                )
+
             conj_section = ""
             if pd.notna(v_card.get("conjugation")) and str(v_card.get("conjugation")).strip():
                 conj_section = (
@@ -429,12 +463,13 @@ elif menu == "🗂️ 単語フラッシュカード (SRS忘却曲線)":
                 )
 
             reveal_html = (
+                f'{header_answer}'
                 '<div style="background-color:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:20px; border-radius:10px; margin-bottom:16px;">'
                 '<h4 style="color:#b45309; margin-top:0;">📖 日本語の意味・語義:</h4>'
                 f'<div style="font-size:1.15rem; line-height:1.8; color:#1e293b;">{v_card["meanings"]}</div>'
                 f'{conj_section}'
                 '<hr style="border:none; border-top:1px solid #fde68a; margin:14px 0;">'
-                '<h4 style="color:#0284c7; margin-top:0;">💬 実際の会話例文:</h4>'
+                '<h4 style="color:#0284c7; margin-top:0;">💬 実際の会話例文 (単語分解つき):</h4>'
                 f'<div style="font-size:1.05rem; line-height:1.8; color:#1e293b;">{v_card["examples"]}</div>'
                 '</div>'
             )
