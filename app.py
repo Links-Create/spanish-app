@@ -5,6 +5,7 @@ import datetime
 from datetime import date, timedelta
 import os
 import re
+from dictionary_data import DICTIONARY_DATA
 
 # --- ページ設定 ---
 st.set_page_config(
@@ -15,6 +16,90 @@ st.set_page_config(
 )
 
 DB_PATH = "spanish_learning.db"
+
+def init_user_state():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_state (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    ''')
+    conn.commit()
+    conn.close()
+
+def get_last_lesson_idx():
+    try:
+        init_user_state()
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM user_state WHERE key = 'last_lesson_idx'")
+        row = cursor.fetchone()
+        conn.close()
+        return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+def save_last_lesson_idx(idx):
+    try:
+        init_user_state()
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO user_state (key, value) VALUES ('last_lesson_idx', ?)", (str(idx),))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+def init_dict_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS dictionary (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        word TEXT NOT NULL,
+        reading TEXT NOT NULL,
+        pos TEXT NOT NULL,
+        meanings TEXT NOT NULL,
+        examples TEXT NOT NULL,
+        category TEXT NOT NULL
+    )
+    ''')
+    cursor.execute("SELECT COUNT(*) FROM dictionary")
+    if cursor.fetchone()[0] == 0:
+        for item in DICTIONARY_DATA:
+            cursor.execute('''
+            INSERT INTO dictionary (word, reading, pos, meanings, examples, category)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', item)
+    conn.commit()
+    conn.close()
+
+def get_dict_df(query="", category="すべて"):
+    init_dict_db()
+    conn = sqlite3.connect(DB_PATH)
+    if query.strip():
+        q = f"%{query.strip()}%"
+        if category == "すべて":
+            df = pd.read_sql_query('''
+            SELECT * FROM dictionary
+            WHERE word LIKE ? OR reading LIKE ? OR meanings LIKE ? OR examples LIKE ?
+            ORDER BY word ASC
+            ''', conn, params=(q, q, q, q))
+        else:
+            df = pd.read_sql_query('''
+            SELECT * FROM dictionary
+            WHERE (word LIKE ? OR reading LIKE ? OR meanings LIKE ? OR examples LIKE ?) AND category = ?
+            ORDER BY word ASC
+            ''', conn, params=(q, q, q, q, category))
+    else:
+        if category == "すべて":
+            df = pd.read_sql_query("SELECT * FROM dictionary ORDER BY word ASC", conn)
+        else:
+            df = pd.read_sql_query("SELECT * FROM dictionary WHERE category = ? ORDER BY word ASC", conn, params=(category,))
+    conn.close()
+    return df
 
 def get_cards_df():
     if not os.path.exists(DB_PATH):
@@ -66,13 +151,14 @@ def calculate_sm2(repetitions, interval_days, ease_factor, quality):
     return new_reps, new_interval, new_ef, next_date.isoformat()
 
 st.sidebar.title("🇪🇸 Español SRS")
-st.sidebar.caption("全113課・発音＆文法マスター搭載")
+st.sidebar.caption("全113課・辞書＆文法マスター搭載")
 
 menu = st.sidebar.radio(
     "メニューを選択",
     [
         "📖 学習レッスン (教科書・解説)",
         "📐 文法公式＆活用マスター",
+        "🔍 スペイン語辞書 (単語・例文検索)",
         "📝 今日の復習・クイズ (SRS)",
         "📊 学習ダッシュボード",
         "📚 単語・文法カード一覧",
@@ -86,15 +172,19 @@ if menu == "📖 学習レッスン (教科書・解説)":
     cards_df = get_cards_df()
     
     if len(cards_df) == 0:
-        st.warning("⚠️ データベースを構築中です。ステップ2のコマンドを実行してください。")
+        st.warning("⚠️ データベースを読み込み中...")
     else:
         if "current_lesson_idx" not in st.session_state:
-            st.session_state.current_lesson_idx = 0
+            st.session_state.current_lesson_idx = get_last_lesson_idx()
             
         st.session_state.current_lesson_idx = max(0, min(st.session_state.current_lesson_idx, len(cards_df) - 1))
         card = cards_df.iloc[st.session_state.current_lesson_idx]
         
-        c_cat, c_les = st.columns(2)
+        last_saved = get_last_lesson_idx()
+        if last_saved > 0 and st.session_state.current_lesson_idx == last_saved:
+            st.info(f"📍 **前回の続き（第 {last_saved + 1} 課）から再開しています")
+        
+        c_cat, c_les = st.columns()
         with c_cat:
             categories = list(cards_df["category"].unique())
             cat_idx = categories.index(card["category"]) if card["category"] in categories else 0
@@ -102,6 +192,7 @@ if menu == "📖 学習レッスン (教科書・解説)":
             if sel_cat != card["category"]:
                 first_idx = cards_df[cards_df["category"] == sel_cat].index[0]
                 st.session_state.current_lesson_idx = int(first_idx)
+                save_last_lesson_idx(int(first_idx))
                 st.rerun()
                 
         with c_les:
@@ -112,12 +203,14 @@ if menu == "📖 学習レッスン (教科書・解説)":
             if sel_lesson != card["lesson_title"]:
                 target_idx = cards_df[cards_df["lesson_title"] == sel_lesson].index[0]
                 st.session_state.current_lesson_idx = int(target_idx)
+                save_last_lesson_idx(int(target_idx))
                 st.rerun()
 
-        nav_prev, nav_info, nav_next = st.columns(3)
+        nav_prev, nav_info, nav_next = st.columns()
         with nav_prev:
             if st.button("⬅️ 前のレッスン", disabled=(st.session_state.current_lesson_idx == 0), use_container_width=True, key="btn_nav_prev_top"):
                 st.session_state.current_lesson_idx -= 1
+                save_last_lesson_idx(st.session_state.current_lesson_idx)
                 st.rerun()
         with nav_info:
             progress_val = (st.session_state.current_lesson_idx + 1) / len(cards_df)
@@ -125,11 +218,12 @@ if menu == "📖 学習レッスン (教科書・解説)":
         with nav_next:
             if st.button("次のレッスン ➡️", disabled=(st.session_state.current_lesson_idx >= len(cards_df) - 1), use_container_width=True, key="btn_nav_next_top"):
                 st.session_state.current_lesson_idx += 1
+                save_last_lesson_idx(st.session_state.current_lesson_idx)
                 st.rerun()
 
         st.divider()
         st.subheader(f"💡 第 {st.session_state.current_lesson_idx + 1} 課: {card['lesson_title']}")
-        st.caption(f"カテゴリー: **{card['category']}")
+        st.caption(f"カテゴリー: ")
         
         st.markdown(f'''
         <div style="background-color:#f8fafc; border-left:5px solid #0284c7; padding:18px; border-radius:8px; font-size:1.1rem; line-height:1.8; color:#1e293b;">
@@ -155,25 +249,28 @@ if menu == "📖 学習レッスン (教科書・解説)":
                 st.info(f"💡 **解説**: {card['explanation']}")
 
         st.divider()
-        b_prev, b_spacer, b_next = st.columns(3)
+        b_prev, b_spacer, b_next = st.columns()
         with b_prev:
             if st.button("⬅️ 前のレッスンに戻る", disabled=(st.session_state.current_lesson_idx == 0), use_container_width=True, key="btn_nav_prev_bottom"):
                 st.session_state.current_lesson_idx -= 1
+                save_last_lesson_idx(st.session_state.current_lesson_idx)
                 st.rerun()
         with b_next:
             if st.button("次のレッスンに進む ➡️", disabled=(st.session_state.current_lesson_idx >= len(cards_df) - 1), use_container_width=True, key="btn_nav_next_bottom"):
                 st.session_state.current_lesson_idx += 1
+                save_last_lesson_idx(st.session_state.current_lesson_idx)
                 st.rerun()
 
 # 2. 📐 文法公式＆活用マスター
 elif menu == "📐 文法公式＆活用マスター":
     st.title("📐 スペイン語 文法公式＆活用マスター")
-    st.caption("初学者が迷いやすい文法ルール、語順、動詞の活用をスッキリ整理したリファレンスです。")
+    st.caption("文法ルール、例文の単語分解、活用形の意味と読み方をスッキリ整理した完全リファレンスです。")
     
-    g_tab1, g_tab2, g_tab3 = st.tabs(["📐 5大文法公式", "🔄 動詞活用早見表", "📋 冠詞・代名詞・前置詞一覧"])
+    g_tab1, g_tab2, g_tab3 = st.tabs(["📐 5大文法公式（例文・単語解説付き）", "🔄 動詞活用早見表（読み・意味付き）", "📋 冠詞・代名詞・前置詞一覧"])
     
     with g_tab1:
         st.subheader("💡 覚えるべきスペイン語の 5大文法公式")
+        
         with st.expander("① 代名詞と動詞の語順公式（人に + 物を + 動詞）", expanded=True):
             st.markdown('''
             **【公式】**  
@@ -182,26 +279,58 @@ elif menu == "📐 文法公式＆活用マスター":
             - **重要ポイント**:
               - 「〜に」と「〜を」の代名詞は、必ず**動詞の前**に置きます。
               - 3人称同士（`le lo` や `le la`）が連続する場合は、発音の都合で `le` が必ず **`se`** に変化します（例: `se lo doy`）。
-              - 不定詞（動詞の原形）の後ろには直接くっつけることができます（例: `Quiero comprártelo`）。
+              - 不定詞（動詞の原形）の後ろには直接くっつけられます（例: `Quiero comprártelo`）。
             
-            > **例文**:  
-            > ・Él **me lo** da.（彼は私にそれをくれます）  
-            > ・**No te lo** digo.（君にそれを言わないよ）  
-            > ・Yo **se lo** explico a María.（私はマリアにそれを説明します）
+            ---
+            ##### 📖 例文と単語の分解解説:
+            1. **Él me lo da.**  
+               - **意味**: 彼は私にそれをくれます。  
+               - **単語分解**: **Él**（エル：[代] 彼は）＋ **me**（メ：[代] 私に）＋ **lo**（ロ：[代] それを）＋ **da**（ダ：[動] 与える/くれる [dar]）
+            
+            2. **No te lo digo.**  
+               - **意味**: 君にそれを言わないよ。  
+               - **単語分解**: **No**（ノ：[副] 〜ない）＋ **te**（テ：[代] 君に）＋ **lo**（ロ：[代] それを）＋ **digo**（ディゴ：[動] 言う [decir]）
+            
+            3. **Yo se lo explico a María.**  
+               - **意味**: 私はマリアにそれを説明します。  
+               - **単語分解**: **Yo**（ヨ：[代] 私は）＋ **se**（セ：[代] 彼女に [leの変化形]）＋ **lo**（ロ：[代] それを）＋ **explico**（エクスプリコ：[動] 説明する）＋ **a María**（ア マリア：マリアに）
+            
+            4. **Quiero comprártelo.**  
+               - **意味**: 私は君にそれを買ってあげたい。  
+               - **単語分解**: **Quiero**（キエロ：[動] 〜したい [querer]）＋ **comprar**（コンプラール：[動] 買う）＋ **te**（君に）＋ **lo**（それを）
             ''')
             
         with st.expander("② por と para の使い分け公式", expanded=False):
             st.markdown('''
             **【公式】**  
-            - **para** ＝ **【矢印の先 ➔ 目的・用途・期限・目的地】**
-            - **por** ＝ **【原因・理由・手段・通過・交換・期間】**
+            - **para** ＝ **【矢印の先 ➔ 目的・用途・期限・目的地】**（〜のために、〜に向けて、〜までに）
+            - **por** ＝ **【原因・理由・手段・通過・交換・期間】**（〜のせいで/おかげで、〜を通って、〜によって）
             
-            | 前置詞 | 表す意味のイメージ | 例文 |
-            | :--- | :--- | :--- |
-            | **para** | 目的（〜のために） | Estudio **para** trabajar en España.（働くために勉強する） |
-            | **para** | 目的地・期限 | El tren sale **para** Madrid. / Es **para** mañana.（明日まで） |
-            | **por** | 原因・理由（〜のせいで/おかげで） | Gracias **por** tu幫助.（手伝ってくれてありがとう） |
-            | **por** | 手段・経路 | Viajo **por** tren. / Camino **por** el parque.（公園を通る） |
+            ---
+            ##### 📖 例文と単語の分解解説:
+            1. **Estudio para trabajar en España.**  
+               - **意味**: 私はスペインで働くために勉強しています。（**目的**）  
+               - **単語分解**: **Estudio**（エストゥディオ：勉強する [estudiar]）＋ **para**（パラ：〜のために）＋ **trabajar**（トラバハール：働く）＋ **en España**（エン エスパーニャ：スペインで）
+            
+            2. **El tren sale para Madrid.**  
+               - **意味**: 電車はマドリードに向けて出発します。（**目的地**）  
+               - **単語分解**: **El tren**（エル トレン：[男] 電車）＋ **sale**（サレ：出発する [salir]）＋ **para Madrid**（パラ マドリード：マドリードへ向けて）
+            
+            3. **Es para mañana.**  
+               - **意味**: それは明日まで（の期限）です。（**期限**）  
+               - **単語分解**: **Es**（エス：〜である [ser]）＋ **para mañana**（パラ マニャーナ：明日までに）
+            
+            4. **Gracias por tu ayuda.**  
+               - **意味**: 手伝ってくれてありがとう。（**原因・理由**）  
+               - **単語分解**: **Gracias**（グラシアス：ありがとう）＋ **por**（ポル：〜に対して）＋ **tu ayuda**（トゥ アユダ：[女] 君の手助け）
+            
+            5. **Viajo por tren.**  
+               - **意味**: 私は電車で旅行します。（**手段**）  
+               - **単語分解**: **Viajo**（ビアホ：旅行する [viajar]）＋ **por tren**（ポル トレン：電車によって）
+            
+            6. **Camino por el parque.**  
+               - **意味**: 私は公園を通って散歩します。（**通過**）  
+               - **単語分解**: **Camino**（カミーノ：歩く [caminar]）＋ **por el parque**（ポル エル パルケ：[男] 公園を通って）
             ''')
 
         with st.expander("③ gustar 型動詞の文型公式（主語が後ろに来る受動構造）", expanded=False):
@@ -209,26 +338,44 @@ elif menu == "📐 文法公式＆活用マスター":
             **【公式】**  
             (A + 人) + **【間接代名詞 (me / te / le / nos / les)】** + **【動詞 (gusta / gustan)】** + **【好きな物・事】**
             
-            - 英語の *like* と違い、「好きな対象」が主語になります。
+            - 英語の *like* と違い、**「好きな対象」が文の主語**になります。
             - 好きな物が**単数**または**動詞の原形**なら ➔ **gusta**
             - 好きな物が**複数**なら ➔ **gustan**
             
-            > **例文**:  
-            > ・**Me gusta** el café.（私はコーヒーが好きです：単数）  
-            > ・**Me gustan** los perros.（私は犬が好きです：複数）  
-            > ・¿**Te gusta** viajar?（君は旅行が好き？：動詞原形）
+            ---
+            ##### 📖 例文と単語の分解解説:
+            1. **Me gusta el café.**  
+               - **直訳**: コーヒーが私に好まれる。 ➔ **意味**: 私はコーヒーが好きです。  
+               - **単語分解**: **Me**（メ：私に）＋ **gusta**（グスタ：好かれている [単数]）＋ **el café**（エル カフェ：[男] コーヒー [単数主語]）
+            
+            2. **Me gustan los perros.**  
+               - **直訳**: 犬たちが私に好まれる。 ➔ **意味**: 私は犬が好きです。  
+               - **単語分解**: **Me**（メ：私に）＋ **gustan**（グスタン：好かれている [複数]）＋ **los perros**（ロス ペロス：[男] 犬たち [複数主語]）
+            
+            3. **¿Te gusta viajar?**  
+               - **意味**: 君は旅行するのが好き？  
+               - **単語分解**: **Te**（テ：君に）＋ **gusta**（グスタ：好かれている）＋ **viajar**（ビアハール：[動] 旅行すること [動詞原形は単数扱い]）
             ''')
 
         with st.expander("④ 2大過去形（点過去 vs 線過去）の使い分け公式", expanded=False):
             st.markdown('''
             **【公式】**  
             - **点過去** ＝ **【完了した行為・一回限りの出来事・期間が区切られた過去】**
-            - **線過去** ＝ **【過去の習慣・進行中の状態・背景描写（〜していた、〜だった）】**
+            - **線過去** ＝ **【過去の習慣・進行中の状態・背景描写】**
             
-            > **黄金の組み合わせパターン**:  
-            > **「〜していた時（線過去）、…が起きた（点過去）」**  
-            > ・Cuando **veía** la tele (線過去), **sonó** el teléfono (点過去).  
-            > （テレビを見ていた時、電話が鳴った）
+            ---
+            ##### 📖 例文と単語の分解解説:
+            1. **Ayer fui al cine.**  
+               - **意味**: 昨日、映画館に行きました。（**点過去**：昨日の1回限りの行為）  
+               - **単語分解**: **Ayer**（アジェール：昨日）＋ **fui**（フイ：行った [irの点過去1人称]）＋ **al cine**（アル シネ：映画館へ）
+            
+            2. **Cuando era niño, jugaba al fútbol.**  
+               - **意味**: 子どもの頃、私はよくサッカーをしていました。（**線過去**：昔の習慣）  
+               - **単語分解**: **Cuando**（クアンド：〜の時）＋ **era niño**（エラ ニニョ：子どもだった [ser]）＋ **jugaba**（フガバ：遊んでいた [jugar]）＋ **al fútbol**（アル フトボル：サッカーを）
+            
+            3. **Cuando veía la tele, sonó el teléfono.**  
+               - **意味**: 私がテレビを見ていた（背景）時、電話が鳴った（一瞬の割り込み）。  
+               - **単語分解**: **veía**（ベイア：見ていた [ver]）＋ **la tele**（テレビを）＋ **sonó**（ソノ：鳴った [sonar]）＋ **el teléfono**（電話が）
             ''')
 
         with st.expander("⑤ 接続法（Subjuntivo）のトリガー公式", expanded=False):
@@ -236,43 +383,92 @@ elif menu == "📐 文法公式＆活用マスター":
             **【公式】**  
             **【主節の動詞（願望・感情・疑惑・要求）】** + **que** + **【接続法動詞】**
             
-            > **定番トリガー**:  
-            > ・願望：**Quiero que** vengas.（あなたに来てほしい）  
-            > ・感情：**Me alegro de que** estés bien.（元気で嬉しい）  
-            > ・否定・疑い：**No creo que** sea verdad.（本当だとは思わない）
+            ---
+            ##### 📖 例文と単語の分解解説:
+            1. **Quiero que vengas a mi casa.**  
+               - **意味**: 私はあなたに私の家に来てほしい。（**願望**）  
+               - **単語分解**: **Quiero**（キエロ：私は望む）＋ **que**（〜ということを）＋ **vengas**（ベンガス：あなたが来る [venir接続法]）＋ **a mi casa**（私の家へ）
+            
+            2. **Me alegro de que estés bien.**  
+               - **意味**: あなたが元気でいてくれて嬉しいです。（**感情**）  
+               - **単語分解**: **Me alegro de**（メ アレグロ デ：嬉しく思う）＋ **que**（〜であることを）＋ **estés**（エステス：あなたが〜である [estar接続法]）＋ **bien**（元気で）
+            
+            3. **No creo que sea verdad.**  
+               - **意味**: それが本当だとは思いません。（**疑惑・否定**）  
+               - **単語分解**: **No creo**（ノ クレオ：信じない）＋ **que**（〜だとは）＋ **sea**（セア：〜である [ser接続法]）＋ **verdad**（ベルダッ(ド)：本当のこと）
             ''')
 
     with g_tab2:
-        st.subheader("🔄 主要動詞の時制・活用早見表")
-        sel_verb = st.selectbox("動詞を選択してください", ["hablar (話す)", "comer (食べる)", "vivir (住む)", "ser (〜である)", "estar (〜にいる)", "tener (持つ)", "ir (行く)"])
-        conjugations = {
-            "hablar (話す)": {"現在形": ["hablo", "hablas", "habla", "hablamos", "hablan"], "点過去": ["hablé", "hablaste", "habló", "hablamos", "hablaron"], "線過去": ["hablaba", "hablabas", "hablaba", "hablábamos", "hablaban"], "未来形": ["hablaré", "hablarás", "hablará", "hablaremos", "hablarán"], "接続法現在": ["hable", "hables", "hable", "hablemos", "hablen"]},
-            "comer (食べる)": {"現在形": ["como", "comes", "come", "comemos", "comen"], "点過去": ["comí", "comiste", "comió", "comimos", "comieron"], "線過去": ["comía", "comías", "comía", "comíamos", "comían"], "未来形": ["comeré", "comerás", "comerá", "comeremos", "comerán"], "接続法現在": ["coma", "comas", "coma", "comamos", "coman"]},
-            "vivir (住む)": {"現在形": ["vivo", "vives", "vive", "vivimos", "viven"], "点過去": ["viví", "viviste", "vivió", "vivimos", "vivieron"], "線過去": ["vivía", "vivías", "vivía", "vivíamos", "vivían"], "未来形": ["viviré", "vivirás", "vivirá", "viviremos", "vivirán"], "接続法現在": ["viva", "vivas", "viva", "vivamos", "vivan"]},
-            "ser (〜である)": {"現在形": ["soy", "eres", "es", "somos", "son"], "点過去": ["fui", "fuiste", "fue", "fuimos", "fueron"], "線過去": ["era", "eras", "era", "éramos", "eran"], "未来形": ["seré", "serás", "será", "seremos", "serán"], "接続法現在": ["sea", "seas", "sea", "seamos", "sean"]},
-            "estar (〜にいる)": {"現在形": ["estoy", "estás", "está", "estamos", "están"], "点過去": ["estuve", "estuviste", "estuvo", "estuvimos", "estuvieron"], "線過去": ["estaba", "estabas", "estaba", "estábamos", "estaban"], "未来形": ["estaré", "estarás", "estará", "estaremos", "estarán"], "接続法現在": ["esté", "estés", "esté", "estemos", "estén"]},
-            "tener (持つ)": {"現在形": ["tengo", "tienes", "tiene", "tenemos", "tienen"], "点過去": ["tuve", "tuviste", "tuvo", "tuvimos", "tuvieron"], "線過去": ["tenía", "tenías", "tenía", "teníamos", "tenían"], "未来形": ["tendré", "tendrás", "tendrá", "tendremos", "tendrán"], "接続法現在": ["tenga", "tengas", "tenga", "tengamos", "tengan"]},
-            "ir (行く)": {"現在形": ["voy", "vas", "va", "vamos", "van"], "点過去": ["fui", "fuiste", "fue", "fuimos", "fueron"], "線過去": ["iba", "ibas", "iba", "íbamos", "iban"], "未来形": ["iré", "irás", "irá", "iremos", "irán"], "接続法現在": ["vaya", "vayas", "vaya", "vayamos", "vayan"]}
+        st.subheader("🔄 主要動詞の時制・活用早見表（カタカナ読み・意味付き）")
+        sel_verb = st.selectbox("動詞を選択してください", ["hablar (話す)", "comer (食べる)", "vivir (住む)", "ser (〜である/本質)", "estar (〜にいる/状態)", "tener (持つ/年齢)", "ir (行く)"])
+        conjugation_tables = {
+            "hablar (話す)": pd.DataFrame({"直説法現在 (〜する)": ["hablo (アブロ: 私は話す)", "hablas (アブラス: 君は話す)", "habla (アブラ: 彼は話す)", "hablamos (アブラモス: 私たちは話す)", "hablan (アブラン: 彼らは話す)"], "点過去 (〜した)": ["hablé (アブレ: 私は話した)", "hablaste (アブラステ: 君は話した)", "habló (アブロ: 彼は話した)", "hablamos (アブラモス: 私たちは話した)", "hablaron (アブラロン: 彼らは話した)"], "線過去 (〜していた)": ["hablaba (アブラバ: 私は話していた)", "hablabas (アブラバス: 君は話していた)", "hablaba (アブラバ: 彼は話していた)", "hablábamos (アブラバモス: 私たちは〜)", "hablaban (アブラバン: 彼らは〜)"], "未来形 (〜するだろう)": ["hablaré (アブラレ: 私は話すだろう)", "hablarás (アブララス: 君は〜)", "hablará (アブララ: 彼は〜)", "hablaremos (アブラレモス: 私たちは〜)", "hablarán (アブララン: 彼らは〜)"], "接続法現在 (願望など)": ["hable (アブレ: 私が話すように)", "hables (アブレス: 君が〜)", "hable (アブレ: 彼が〜)", "hablemos (アブレモス: 私たちが〜)", "hablen (アブレン: 彼らが〜)"]}, index=["Yo (私)", "Tú (君)", "Él/Ella/Ud (彼/彼女/あなた)", "Nosotros (私たち)", "Ellos/Uds (彼ら/あなた方)"]),
+            "comer (食べる)": pd.DataFrame({"直説法現在 (〜する)": ["como (コモ: 私は食べる)", "comes (コメス: 君は食べる)", "come (コメ: 彼は食べる)", "comemos (コメモス: 私たちは食べる)", "comen (コメン: 彼らは食べる)"], "点過去 (〜した)": ["comí (コミ: 私は食べた)", "comiste (コミステ: 君は食べた)", "comió (コミオ: 彼は食べた)", "comimos (コミモス: 私たちは食べた)", "comieron (コミエロン: 彼らは食べた)"], "線過去 (〜していた)": ["comía (コミア: 私は食べていた)", "comías (コミアス: 君は食べていた)", "comía (コミア: 彼は食べていた)", "comíamos (コミアモス: 私たちは〜)", "comían (コミアン: 彼らは〜)"], "未来形 (〜するだろう)": ["comeré (コメレ: 私は食べるだろう)", "comerás (コメラス: 君は〜)", "comerá (コメラ: 彼は〜)", "comeremos (コメレモス: 私たちは〜)", "comerán (コメラン: 彼らは〜)"], "接続法現在 (願望など)": ["coma (コマ: 私が食べるように)", "comas (コマス: 君が〜)", "coma (コマ: 彼が〜)", "comamos (コマモス: 私たちが〜)", "coman (コマン: 彼らが〜)"]}, index=["Yo (私)", "Tú (君)", "Él/Ella/Ud (彼/彼女/あなた)", "Nosotros (私たち)", "Ellos/Uds (彼ら/あなた方)"]),
+            "vivir (住む)": pd.DataFrame({"直説法現在 (〜する)": ["vivo (ビボ: 私は住む)", "vives (ビベス: 君は住む)", "vive (ビベ: 彼は住む)", "vivimos (ビビモス: 私たちは住む)", "viven (ビベン: 彼らは住む)"], "点過去 (〜した)": ["viví (ビビ: 私は住んだ)", "viviste (ビビステ: 君は住んだ)", "vivió (ビビオ: 彼は住んだ)", "vivimos (ビビモス: 私たちは住んだ)", "vivieron (ビビエロン: 彼らは住んだ)"], "線過去 (〜していた)": ["vivía (ビビア: 私は住んでいた)", "vivías (ビビアス: 君は住んでいた)", "vivía (ビビア: 彼は住んでいた)", "vivíamos (ビビアモス: 私たちは〜)", "vivían (ビビアン: 彼らは〜)"], "未来形 (〜するだろう)": ["viviré (ビビレ: 私は住むだろう)", "vivirás (ビビラス: 君は〜)", "vivirá (ビビラ: 彼は〜)", "viviremos (ビビレモス: 私たちは〜)", "vivirán (ビビラン: 彼らは〜)"], "接続法現在 (願望など)": ["viva (ビバ: 私が住むように)", "vivas (ビバス: 君が〜)", "viva (ビバ: 彼が〜)", "vivamos (ビバモス: 私たちが〜)", "vivan (ビバン: 彼らが〜)"]}, index=["Yo (私)", "Tú (君)", "Él/Ella/Ud (彼/彼女/あなた)", "Nosotros (私たち)", "Ellos/Uds (彼ら/あなた方)"]),
+            "ser (〜である/本質)": pd.DataFrame({"直説法現在 (〜である)": ["soy (ソイ: 私は〜です)", "eres (エレス: 君は〜です)", "es (エス: 彼は〜です)", "somos (ソモス: 私たちは〜です)", "son (ソン: 彼らは〜です)"], "点過去 (〜だった)": ["fui (フイ: 私は〜だった)", "fuiste (フイステ: 君は〜だった)", "fue (フエ: 彼は〜だった)", "fuimos (フイモス: 私たちは〜だった)", "fueron (フエロン: 彼らは〜だった)"], "線過去 (昔〜だった)": ["era (エラ: 昔私は〜だった)", "eras (エラス: 昔君は〜だった)", "era (エラ: 昔彼は〜だった)", "éramos (エラモス: 私たちは〜だった)", "eran (エラン: 彼らは〜だった)"], "未来形 (〜だろう)": ["seré (セレ: 私は〜だろう)", "serás (セラス: 君は〜だろう)", "será (セラ: 彼は〜だろう)", "seremos (セレモス: 私たちは〜だろう)", "serán (セラン: 彼らは〜だろう)"], "接続法現在 (願望など)": ["sea (セア: 私が〜であるように)", "seas (セアス: 君が〜であるように)", "sea (セア: 彼が〜であるように)", "seamos (セアモス: 私たちが〜)", "sean (セアン: 彼らが〜)"]}, index=["Yo (私)", "Tú (君)", "Él/Ella/Ud (彼/彼女/あなた)", "Nosotros (私たち)", "Ellos/Uds (彼ら/あなた方)"]),
+            "estar (〜にいる/状態)": pd.DataFrame({"直説法現在 (〜にいる)": ["estoy (エストイ: 私はいる)", "estás (エスタス: 君はいる)", "está (エスタ: 彼はいる)", "estamos (エスタモス: 私たちはいる)", "están (エスタン: 彼らはいる)"], "点過去 (〜にいた)": ["estuve (エストゥベ: 私はいた)", "estuviste (エストゥビステ: 君はいた)", "estuvo (エストゥボ: 彼はいた)", "estuvimos (エストゥビモス: 私たちは〜)", "estuvieron (エストゥビエロン: 彼らは〜)"], "線過去 (〜にいた)": ["estaba (エスタバ: 私はいた)", "estabas (エスタバス: 君はいた)", "estaba (エスタバ: 彼はいた)", "estábamos (エスタバモス: 私たちは〜)", "estaban (エスタバン: 彼らは〜)"], "未来形 (〜にいるだろう)": ["estaré (エスタレ: 私はいるだろう)", "estarás (エスタラス: 君は〜)", "estará (エスタラ: 彼は〜)", "estaremos (エスタレモス: 私たちは〜)", "estarán (エスタラン: 彼らは〜)"], "接続法現在 (願望など)": ["esté (エステ: 私がいるように)", "estés (エステス: 君が〜)", "esté (エステ: 彼が〜)", "estemos (エステモス: 私たちが〜)", "estén (エステン: 彼らが〜)"]}, index=["Yo (私)", "Tú (君)", "Él/Ella/Ud (彼/彼女/あなた)", "Nosotros (私たち)", "Ellos/Uds (彼ら/あなた方)"]),
+            "tener (持つ/年齢)": pd.DataFrame({"直説法現在 (持つ)": ["tengo (テンゴ: 私は持つ/〜歳)", "tienes (ティエネス: 君は持つ)", "tiene (ティエネ: 彼は持つ)", "tenemos (テメモス: 私たちは持つ)", "tienen (ティエネン: 彼らは持つ)"], "点過去 (持った/得た)": ["tuve (トゥベ: 私は持った)", "tuviste (トゥビステ: 君は持った)", "tuvo (トゥボ: 彼は持った)", "tuvimos (トゥビモス: 私たちは持った)", "tuvieron (トゥビエロン: 彼らは持った)"], "線過去 (持っていた)": ["tenía (テニア: 私は持っていた)", "tenías (テニアス: 君は持っていた)", "tenía (テニア: 彼は持っていた)", "teníamos (テニアモス: 私たちは〜)", "tenían (テニアン: 彼らは〜)"], "未来形 (持つだろう)": ["tendré (テンドレ: 私は持つだろう)", "tendrás (テンドラス: 君は〜)", "tendrá (テンドラ: 彼は〜)", "tendremos (テンドレモス: 私たちは〜)", "tendrán (テンドラン: 彼らは〜)"], "接続法現在 (願望など)": ["tenga (テンガ: 私が持つように)", "tengas (テンガス: 君が〜)", "tenga (テンガ: 彼が〜)", "tengamos (テンガモス: 私たちが〜)", "tengan (テンガン: 彼らが〜)"]}, index=["Yo (私)", "Tú (君)", "Él/Ella/Ud (彼/彼女/あなた)", "Nosotros (私たち)", "Ellos/Uds (彼ら/あなた方)"]),
+            "ir (行く)": pd.DataFrame({"直説法現在 (行く)": ["voy (ボイ: 私は行く)", "vas (バス: 君は行く)", "va (バ: 彼は行く)", "vamos (バモス: 私たちは行く)", "van (バン: 彼らは行く)"], "点過去 (行った)": ["fui (フイ: 私は行った)", "fuiste (フイステ: 君は行った)", "fue (フエ: 彼は行った)", "fuimos (フイモス: 私たちは行った)", "fueron (フエロン: 彼らは行った)"], "線過去 (行っていた)": ["iba (イバ: 私は行っていた)", "ibas (イバス: 君は行っていた)", "iba (イバ: 彼は行っていた)", "íbamos (イバモス: 私たちは〜)", "iban (イバン: 彼らは〜)"], "未来形 (行くだろう)": ["iré (イレ: 私は行くだろう)", "irás (イラス: 君は〜)", "irá (イラ: 彼は〜)", "iremos (イレモス: 私たちは〜)", "irán (イラン: 彼らは〜)"], "接続法現在 (願望など)": ["vaya (バヤ: 私が行くように)", "vayas (バヤス: 君が〜)", "vaya (バヤ: 彼が〜)", "vayamos (バヤモス: 私たちが〜)", "vayan (バヤン: 彼らが〜)"]}, index=["Yo (私)", "Tú (君)", "Él/Ella/Ud (彼/彼女/あなた)", "Nosotros (私たち)", "Ellos/Uds (彼ら/あなた方)"])
         }
-        v_df = pd.DataFrame(conjugations[sel_verb], index=["Yo (私)", "Tú (君)", "Él/Ella/Ud (彼/彼女)", "Nosotros (私たち)", "Ellos/Uds (彼ら)"])
-        st.dataframe(v_df, use_container_width=True)
+        st.dataframe(conjugation_tables[sel_verb], use_container_width=True)
 
     with g_tab3:
         st.subheader("📋 冠詞・代名詞・前置詞の早見表")
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("##### 📌 冠詞（定冠詞・不定冠詞）")
-            art_df = pd.DataFrame({"男性単数": ["el", "un"], "女性単数": ["la", "una"], "男性複数": ["los", "unos"], "女性複数": ["las", "unas"]}, index=["定冠詞 (the)", "不定冠詞 (a / some)"])
+            art_df = pd.DataFrame({"男性単数": ["el (エル: その)", "un (ウン: 1つの)"], "女性単数": ["la (ラ: その)", "una (ウナ: 1つの)"], "男性複数": ["los (ロス: その)", "unos (ウノス: いくつかの)"], "女性複数": ["las (ラス: その)", "unas (ウナス: いくつかの)"]}, index=["定冠詞 (the)", "不定冠詞 (a / some)"])
             st.dataframe(art_df, use_container_width=True)
             st.markdown("##### 📌 所有形容詞")
-            pos_df = pd.DataFrame({"単数名詞の前": ["mi (私の)", "tu (君の)", "su (彼の/あなたの)", "nuestro/a (私たちの)"], "複数名詞の前": ["mis", "tus", "sus", "nuestros/as"]}, index=["1人称単数", "2人称単数", "3人称", "1人称複数"])
+            pos_df = pd.DataFrame({"単数名詞の前": ["mi (ミ: 私の)", "tu (トゥ: 君の)", "su (ス: 彼の/あなたの)", "nuestro/a (ヌエストロ: 私たちの)"], "複数名詞の前": ["mis (ミス: 私の〜たち)", "tus (トゥス: 君の〜たち)", "sus (スス: 彼の〜たち)", "nuestros/as (私たちの〜たち)"]}, index=["1人称単数 (私)", "2人称単数 (君)", "3人称 (彼/彼女/あなた)", "1人称複数 (私たち)"])
             st.dataframe(pos_df, use_container_width=True)
         with c2:
             st.markdown("##### 📌 人称代名詞・目的格代名詞")
-            pron_df = pd.DataFrame({"主語 (私は)": ["yo", "tú", "él / ella / usted", "nosotros", "ellos / ustedes"], "直接 (〜を)": ["me", "te", "lo / la", "nos", "los / las"], "間接 (〜に)": ["me", "te", "le (se)", "nos", "les (se)"], "再帰 (自分を)": ["me", "te", "se", "nos", "se"]}, index=["私", "君", "彼/彼女/あなた", "私たち", "彼ら/あなた方"])
+            pron_df = pd.DataFrame({"主語 (〜は)": ["yo (ヨ: 私は)", "tú (トゥ: 君は)", "él / ella / usted (彼/彼女/あなた)", "nosotros (ノソトロス: 私たちは)", "ellos / ustedes (彼ら/あなた方)"], "直接目的語 (〜を)": ["me (メ: 私を)", "te (テ: 君を)", "lo / la (ロ/ラ: 彼を/彼女を/それを)", "nos (ノス: 私たちを)", "los / las (ロス/ラス: 彼らを/それらを)"], "間接目的語 (〜に)": ["me (メ: 私に)", "te (テ: 君に)", "le / se (レ/セ: 彼に/彼女に/あなたに)", "nos (ノス: 私たちに)", "les / se (レス/セ: 彼らに/あなた方に)"], "再帰代名詞 (自分を)": ["me (メ: 自分を)", "te (テ: 自分を)", "se (セ: 自分を)", "nos (ノス: 自分たちを)", "se (セ: 自分たちを)"]}, index=["1人称 (私)", "2人称 (君)", "3人称 (彼/彼女/あなた)", "1人称複数 (私たち)", "3人称複数 (彼ら/あなた方)"])
             st.dataframe(pron_df, use_container_width=True)
 
-# 3. 📝 今日の復習・クイズ (SRS)
+# 3. 🔍 スペイン語辞書 (単語・例文検索)
+elif menu == "🔍 スペイン語辞書 (単語・例文検索)":
+    st.title("🔍 スペイン語 実用例文つき辞書")
+    st.caption("単語の複数の意味、カタカナ発音、品詞（性別）、実際の日常会話で使える例文を確認できます。")
+    
+    init_dict_db()
+    
+    d_col1, d_col2 = st.columns()
+    with d_col1:
+        search_query = st.text_input("🔍 単語・意味・例文を検索", placeholder="例：tener, 家, 食べる, para, 旅行, ありがとう...", key="dict_search_input")
+    with d_col2:
+        sel_cat = st.selectbox("🏷️ 品詞フィルター", ["すべて", "動詞", "名詞", "形容詞", "前置詞", "副詞"], key="dict_cat_filter")
+        
+    dict_results = get_dict_df(search_query, sel_cat)
+    
+    st.caption(f"検索結果: **{len(dict_results)}** 件の単語が見つかりました")
+    st.divider()
+    
+    if len(dict_results) == 0:
+        st.info(f"「**{search_query}**」に一致する単語が見つかりませんでした。別のキーワード（スペイン語または日本語）でお試しください。")
+    else:
+        for _, entry in dict_results.iterrows():
+            with st.container():
+                st.markdown(f'''
+                <div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #f59e0b; padding:18px; border-radius:10px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
+                        <span style="font-size:1.6rem; font-weight:bold; color:#1e293b;">{entry['word']}</span>
+                        <span style="font-size:1.05rem; color:#64748b; margin-left:12px;">【{entry['reading']}】</span>
+                        <span style="background-color:#fef3c7; color:#92400e; padding:3px 10px; border-radius:12px; font-size:0.85rem; font-weight:bold; margin-left:auto;">{entry['pos']}</span>
+                    </div>
+                    <div style="margin-top:10px; padding:12px; background-color:#fffbeb; border-radius:6px; font-size:1.05rem; line-height:1.7; color:#334155;">
+                        <strong style="color:#b45309;">📖 意味・語義:</strong><br>
+                        {entry['meanings']}
+                    </div>
+                    <div style="margin-top:12px; padding:12px; background-color:#f8fafc; border-radius:6px; font-size:1.0rem; line-height:1.8; color:#1e293b;">
+                        <strong style="color:#0284c7;">💬 実用例文:</strong><br>
+                        {entry['examples']}
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+
+# 4. 📝 今日の復習・クイズ (SRS)
 elif menu == "📝 今日の復習・クイズ (SRS)":
     st.title("📝 スペイン語 復習セッション (忘却曲線)")
     cards_df = get_cards_df()
@@ -366,7 +562,7 @@ elif menu == "📝 今日の復習・クイズ (SRS)":
             if r_col4.button("🔵 簡単！ (Easy)<br><small>長い間隔</small>", use_container_width=True):
                 submit_rating(4)
 
-# 4. 📊 学習ダッシュボード
+# 5. 📊 学習ダッシュボード
 elif menu == "📊 学習ダッシュボード":
     st.title("📊 学習ダッシュボード")
     cards_df = get_cards_df()
@@ -404,7 +600,7 @@ elif menu == "📊 学習ダッシュボード":
         cat_progress.columns = ["カテゴリ", "平均習熟レベル"]
         st.bar_chart(cat_progress.set_index("カテゴリ"))
 
-# 5. 📚 単語・文法カード一覧
+# 6. 📚 単語・文法カード一覧
 elif menu == "📚 単語・文法カード一覧":
     st.title("📚 カリキュラム・カード一覧")
     cards_df = get_cards_df()
@@ -453,7 +649,7 @@ elif menu == "📚 単語・文法カード一覧":
         csv_data = cards_df.to_csv(index=False).encode('utf-8_sig')
         st.download_button(label="📥 全113課のカリキュラムをCSVでダウンロード", data=csv_data, file_name="spanish_curriculum_113.csv", mime="text/csv")
 
-# 6. 📈 学習ログ・履歴分析
+# 7. 📈 学習ログ・履歴分析
 elif menu == "📈 学習ログ・履歴分析":
     st.title("📈 学習ログ・履歴分析")
     logs_df = get_logs_df()
