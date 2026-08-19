@@ -7,6 +7,8 @@ import os
 import re
 import time
 import json
+import html
+import streamlit.components.v1 as components
 from dictionary_data import DICTIONARY_DATA
 from chunks_data import CHUNKS_DATA
 from pop_culture_data import POP_CULTURE_DATA
@@ -47,6 +49,171 @@ section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:last-child
 }
 </style>
 """, unsafe_allow_html=True)
+
+# --- Web Speech API (音声読み上げ & 発音チェッカー) ---
+def clean_speech_text(text):
+    if not text:
+        return ""
+    t = re.sub(r'<[^>]+>', ' ', text)
+    t = re.sub(r'【[^】]*】', ' ', t)
+    t = re.sub(r'（[^）]*）', ' ', t)
+    t = re.sub(r'\([^)]*\)', ' ', t)
+    t = re.sub(r'└.*', ' ', t)
+    t = t.replace('・', ' ').replace('＿＿＿＿', ' ').strip()
+    return t
+
+def render_audio_player(spanish_text, label="🔊 ネイティブ音声", slow_rate=0.75, height=48):
+    clean_txt = clean_speech_text(spanish_text)
+    if not clean_txt:
+        return
+    safe_txt = html.escape(clean_txt, quote=True).replace("'", "\\'").replace('"', '\\"')
+    
+    html_code = f"""
+    <div style="display:flex; align-items:center; gap:8px; font-family:-apple-system,BlinkMacSystemFont,sans-serif; margin:4px 0;">
+        <span style="font-size:0.85rem; color:#475569; font-weight:600;">{label}:</span>
+        <button onclick="playSpeech(1.0)" style="background:#0284c7; color:#ffffff; border:none; padding:5px 12px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+            🔊 通常速
+        </button>
+        <button onclick="playSpeech({slow_rate})" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1; padding:4px 10px; border-radius:6px; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+            🐢 ゆっくり (0.75x)
+        </button>
+    </div>
+    <script>
+    function playSpeech(rate) {{
+        if ('speechSynthesis' in window) {{
+            window.speechSynthesis.cancel();
+            const utter = new SpeechSynthesisUtterance("{safe_txt}");
+            utter.lang = "es-ES";
+            utter.rate = rate;
+            utter.pitch = 1.0;
+            const voices = window.speechSynthesis.getVoices();
+            const esVoice = voices.find(v => v.lang.startsWith('es'));
+            if (esVoice) utter.voice = esVoice;
+            window.speechSynthesis.speak(utter);
+        }} else {{
+            alert("お使いのブラウザは音声読み上げに対応していません。");
+        }}
+    }}
+    if ('speechSynthesis' in window) {{
+        window.speechSynthesis.getVoices();
+    }}
+    </script>
+    """
+    components.html(html_code, height=height)
+
+def render_pronunciation_checker(target_text, height=135):
+    clean_txt = clean_speech_text(target_text)
+    if not clean_txt:
+        return
+    safe_txt = html.escape(clean_txt, quote=True).replace("'", "\\'").replace('"', '\\"')
+    
+    html_code = f"""
+    <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif; background:#f8fafc; border:1px dashed #94a3b8; border-radius:8px; padding:10px 14px; margin:6px 0;">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:0.9rem; font-weight:bold; color:#334155;">🎙️ マイク発音判定チェッカー</span>
+            <button id="recBtn" onclick="toggleRecognition()" style="background:#dc2626; color:white; border:none; padding:6px 14px; border-radius:6px; font-weight:bold; font-size:0.85rem; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+                🎙️ 発音してチェック
+            </button>
+        </div>
+        <div id="statusText" style="font-size:0.82rem; color:#64748b; margin-top:6px;">ボタンを押してマイクに向かってスペイン語で発音してください</div>
+        <div id="resultBox" style="display:none; margin-top:6px; padding:6px 10px; border-radius:6px; font-size:0.88rem; font-weight:600;"></div>
+    </div>
+    <script>
+    let recognition = null;
+    let isRecording = false;
+    const target = "{safe_txt}".toLowerCase().replace(/[¿?¡!.,]/g, '').trim();
+
+    function getLevenshteinDistance(a, b) {{
+        const matrix = [];
+        for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+        for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+        for (let i = 1; i <= b.length; i++) {{
+            for (let j = 1; j <= a.length; j++) {{
+                if (b.charAt(i - 1) === a.charAt(j - 1)) {{
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                }} else {{
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + 1,
+                        matrix[i][j - 1] + 1,
+                        matrix[i - 1][j] + 1
+                    );
+                }}
+            }}
+        }}
+        return matrix[b.length][a.length];
+    }}
+
+    function toggleRecognition() {{
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRec) {{
+            alert("お使いのブラウザは音声認識に対応していません。Google ChromeまたはSafari等でお試しください。");
+            return;
+        }}
+
+        const btn = document.getElementById('recBtn');
+        const status = document.getElementById('statusText');
+        const resBox = document.getElementById('resultBox');
+
+        if (isRecording) {{
+            if (recognition) recognition.stop();
+            return;
+        }}
+
+        recognition = new SpeechRec();
+        recognition.lang = 'es-ES';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = function() {{
+            isRecording = true;
+            btn.innerHTML = "⏹️ 録音中 (話してください)...";
+            btn.style.background = "#b91c1c";
+            status.innerHTML = "🔴 聴き取っています... スペイン語でどうぞ！";
+            status.style.color = "#dc2626";
+            resBox.style.display = "none";
+        }};
+
+        recognition.onresult = function(event) {{
+            const spoken = event.results[0][0].transcript;
+            const spokenClean = spoken.toLowerCase().replace(/[¿?¡!.,]/g, '').trim();
+            
+            const dist = getLevenshteinDistance(target, spokenClean);
+            const maxLen = Math.max(target.length, spokenClean.length);
+            let score = Math.max(0, Math.round((1 - dist / maxLen) * 100));
+            if (target === spokenClean) score = 100;
+
+            resBox.style.display = "block";
+            if (score >= 85) {{
+                resBox.style.background = "#dcfce7";
+                resBox.style.color = "#15803d";
+                resBox.innerHTML = "🌟 スコア: " + score + "点 (完璧な発音！) 🗣️ 認識: 「" + spoken + "」";
+            }} else if (score >= 60) {{
+                resBox.style.background = "#fef9c3";
+                resBox.style.color = "#854d0e";
+                resBox.innerHTML = "🟢 スコア: " + score + "点 (十分伝わります！) 🗣️ 認識: 「" + spoken + "」";
+            }} else {{
+                resBox.style.background = "#fee2e2";
+                resBox.style.color = "#991b1b";
+                resBox.innerHTML = "🟡 スコア: " + score + "点 (もう一度トライ！) 🗣️ 認識: 「" + spoken + "」";
+            }}
+        }};
+
+        recognition.onerror = function(event) {{
+            status.innerHTML = "⚠️ 音声を認識できませんでした (" + event.error + ")。もう一度お試しください。";
+            status.style.color = "#64748b";
+        }};
+
+        recognition.onend = function() {{
+            isRecording = false;
+            btn.innerHTML = "🎙️ 発音してチェック";
+            btn.style.background = "#dc2626";
+        }};
+
+        recognition.start();
+    }}
+    </script>
+    """
+    components.html(html_code, height=height)
 
 DB_PATH = "spanish_learning.db"
 
@@ -715,6 +882,7 @@ if menu == "📖 文法レッスン (全113課)":
         
         disp_sent = card["sentence"].replace("[___]", "＿＿＿＿")
         st.markdown(f'<div style="background-color:#f1f5f9; padding:14px; border-radius:6px; font-size:1.25rem; font-weight:bold;">{disp_sent}</div>', unsafe_allow_html=True)
+        render_audio_player(card["sentence"], label="🔊 例文音声")
         
         options = [opt.strip() for opt in card["options"].split(",")]
         cols = st.columns(len(options))
@@ -804,6 +972,7 @@ elif menu == "🔀 全113課 インターリービング文法シャッフル (�
             '</div>'
         )
         st.markdown(card_content_box, unsafe_allow_html=True)
+        render_audio_player(q_card["sentence"], label="🔊 問題文音声")
         
         if "interleave_start_time" not in st.session_state:
             st.session_state.interleave_start_time = time.time()
@@ -914,6 +1083,8 @@ elif menu == "⚡ 瞬間パターンプラクティス (瞬間西作文)":
                 '</div>'
             )
             st.markdown(drill_reveal_html, unsafe_allow_html=True)
+            render_audio_player(ans_es, label="🔊 正解音声")
+            render_pronunciation_checker(ans_es)
             
             b_col1, b_col2 = st.columns([1.5, 1])
             with b_col1:
@@ -1040,6 +1211,9 @@ elif menu == "🧩 最重要チャンクマスター (50選 / Smart SRS)":
                 '</div>'
             )
             st.markdown(reveal_chunk_html, unsafe_allow_html=True)
+            render_audio_player(c_card["chunk"], label="🔊 チャンク音声")
+            render_pronunciation_checker(c_card["chunk"])
+            render_audio_player(c_card["example"], label="🔊 会話例文音声")
             
             # Smart SRS
             s_reps, s_inv, s_ef, s_date, s_rat, s_lbl, s_det = calculate_smart_srs(
@@ -1116,7 +1290,7 @@ elif menu == "🎬 映画・ドラマ・アニメ名セリフ (Sentence Mining)"
         disp_quote_spanish = "🔒 [クリックしてセリフを表示]" if hide_spanish else quote["spanish"]
         
         quote_card_html = (
-            '<div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #8b5cf6; padding:20px; border-radius:12px; margin-bottom:20px; box-shadow:0 2px 4px rgba(0,0,0,0.04);">'
+            '<div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #8b5cf6; padding:20px; border-radius:12px; margin-bottom:12px; box-shadow:0 2px 4px rgba(0,0,0,0.04);">'
             '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">'
             '<div>'
             f'<span style="font-size:1.15rem; font-weight:bold; color:#1e293b;">🎬 {quote["work"]}</span>'
@@ -1142,6 +1316,9 @@ elif menu == "🎬 映画・ドラマ・アニメ名セリフ (Sentence Mining)"
             '</div>'
         )
         st.markdown(quote_card_html, unsafe_allow_html=True)
+        render_audio_player(quote["spanish"], label="🔊 ネイティブ名セリフ")
+        render_pronunciation_checker(quote["spanish"])
+        st.write("")
 
 # 6. 🗂️ 単語フラッシュカード (Smart Timer SRS)
 elif menu == "🗂️ 単語フラッシュカード (Smart Timer SRS)":
@@ -1270,6 +1447,9 @@ elif menu == "🗂️ 単語フラッシュカード (Smart Timer SRS)":
                 '</div>'
             )
             st.markdown(reveal_html, unsafe_allow_html=True)
+            render_audio_player(v_card["word"], label="🔊 単語音声")
+            render_pronunciation_checker(v_card["word"])
+            render_audio_player(v_card["examples"], label="🔊 会話例文音声")
 
             # 経過日数の計算
             conn = sqlite3.connect(DB_PATH)
@@ -1405,7 +1585,7 @@ elif menu == "🔍 単語帳＆実用辞書 (220語+)":
                     )
 
                 card_entry_html = (
-                    '<div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #f59e0b; padding:18px; border-radius:10px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">'
+                    '<div style="background-color:#ffffff; border:1px solid #e2e8f0; border-left:6px solid #f59e0b; padding:18px; border-radius:10px; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">'
                     '<div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">'
                     f'<span style="font-size:1.6rem; font-weight:bold; color:#1e293b;">{entry["word"]}</span>'
                     f'<span style="font-size:1.05rem; color:#64748b; margin-left:12px;">【{entry["reading"]}】</span>'
@@ -1422,6 +1602,9 @@ elif menu == "🔍 単語帳＆実用辞書 (220語+)":
                     '</div>'
                 )
                 st.markdown(card_entry_html, unsafe_allow_html=True)
+                render_audio_player(entry["word"], label="🔊 単語音声")
+                render_audio_player(entry["examples"], label="🔊 例文音声")
+                st.write("")
 
 # 4. 📐 文法公式＆活用マスター
 elif menu == "📐 文法公式＆活用マスター":
@@ -1592,6 +1775,8 @@ elif menu == "📝 文法復習セッション (SRS)":
                 
             exp_html = f'<div style="background-color:#fff7ed; border-left:4px solid #f97316; padding:12px; border-radius:6px; margin-bottom:14px;"><strong>💡 解説:</strong><br>{card["explanation"]}</div>'
             st.markdown(exp_html, unsafe_allow_html=True)
+            render_audio_player(card["sentence"], label="🔊 例文音声")
+            render_pronunciation_checker(card["sentence"])
             
             # 経過日数の計算
             conn = sqlite3.connect(DB_PATH)
@@ -1673,7 +1858,8 @@ elif menu == "📝 文法復習セッション (SRS)":
                     m_r, m_i, m_ef, m_d = calculate_sm2(int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]), 4)
                     submit_grammar_record(m_r, m_i, m_ef, m_d, 0, 4, 1)
 
-# 10. 📊 学習ダッシュボード
+
+# # 10. 📊 学習ダッシュボード
 elif menu == "📊 学習ダッシュボード":
     st.title("📊 学習ダッシュボード (文法・単語・学習時間 総合)")
     cards_df = get_cards_df()
