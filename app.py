@@ -51,6 +51,95 @@ section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:last-child
 """, unsafe_allow_html=True)
 
 # --- Web Speech API (音声読み上げ & 発音チェッカー) ---
+import difflib
+
+def normalize_spanish_text(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = text.strip()
+    for char in [".", ",", "!", "?", "¡", "¿", "…", "・", '"', "'", "(", ")"]:
+        cleaned = cleaned.replace(char, "")
+    return cleaned.strip().lower()
+
+def strip_spanish_accents(text: str) -> str:
+    accent_map = {
+        'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u',
+        'Á': 'a', 'É': 'e', 'Í': 'i', 'Ó': 'o', 'Ú': 'u',
+        'ü': 'u', 'Ü': 'u', 'ñ': 'n', 'Ñ': 'n'
+    }
+    res = text
+    for acc, plain in accent_map.items():
+        res = res.replace(acc, plain)
+    return res
+
+def generate_diff_html(user_input: str, target: str) -> dict:
+    u_norm = normalize_spanish_text(user_input)
+    t_norm = normalize_spanish_text(target)
+    
+    if not u_norm:
+        return {
+            "score": 0,
+            "status": "empty",
+            "diff_html": '<span style="color:#64748b;">(未入力)</span>',
+            "is_perfect": False,
+            "is_accent_only": False,
+            "feedback": "単語を入力してください。"
+        }
+        
+    if u_norm == t_norm:
+        return {
+            "score": 100,
+            "status": "perfect",
+            "diff_html": f'<span style="color:#16a34a; font-weight:bold; font-size:1.3rem;">{html.escape(target)}</span> <span style="background-color:#dcfce7; color:#15803d; padding:2px 8px; border-radius:12px; font-size:0.85rem; font-weight:bold;">🌟 完全一致 (100点)</span>',
+            "is_perfect": True,
+            "is_accent_only": False,
+            "feedback": "完璧なスペルです！素晴らしい！"
+        }
+        
+    if strip_spanish_accents(u_norm) == strip_spanish_accents(t_norm):
+        return {
+            "score": 90,
+            "status": "accent_miss",
+            "diff_html": f'<span style="color:#ca8a04; font-weight:bold; font-size:1.3rem;">{html.escape(user_input)}</span> ➔ 正解: <span style="color:#16a34a; font-weight:bold; font-size:1.3rem;">{html.escape(target)}</span> <span style="background-color:#fef9c3; color:#854d0e; padding:2px 8px; border-radius:12px; font-size:0.85rem; font-weight:bold;">⚠️ アクセント記号注意 (90点)</span>',
+            "is_perfect": True,
+            "is_accent_only": True,
+            "feedback": "スペルは大正解！ただしアクセント記号（á, é, í, ó, ú, ñ）を忘れずに付けましょう。"
+        }
+        
+    matcher = difflib.SequenceMatcher(None, u_norm, t_norm)
+    score = int(matcher.ratio() * 100)
+    
+    diff_parts = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            diff_parts.append(f'<span style="color:#16a34a; font-weight:bold;">{html.escape(u_norm[i1:i2])}</span>')
+        elif tag == 'replace':
+            diff_parts.append(f'<del style="color:#dc2626; background-color:#fee2e2; padding:0 3px; border-radius:3px; text-decoration:line-through; font-weight:bold;">{html.escape(u_norm[i1:i2])}</del><ins style="color:#2563eb; background-color:#dbeafe; padding:0 3px; border-radius:3px; text-decoration:none; font-weight:bold;">{html.escape(t_norm[j1:j2])}</ins>')
+        elif tag == 'delete':
+            diff_parts.append(f'<del style="color:#dc2626; background-color:#fee2e2; padding:0 3px; border-radius:3px; text-decoration:line-through; font-weight:bold;">{html.escape(u_norm[i1:i2])}</del>')
+        elif tag == 'insert':
+            diff_parts.append(f'<ins style="color:#2563eb; background-color:#dbeafe; padding:0 3px; border-radius:3px; text-decoration:none; font-weight:bold;">{html.escape(t_norm[j1:j2])}</ins>')
+            
+    diff_html_str = "".join(diff_parts)
+    
+    if score >= 70:
+        badge = f'<span style="background-color:#ffedd5; color:#c2410c; padding:2px 8px; border-radius:12px; font-size:0.85rem; font-weight:bold;">惜しい！ニアミス ({score}点)</span>'
+        feedback = "あと一歩です！青色の文字（抜けていた/正しい文字）を確認しましょう。"
+        status = "near_miss"
+    else:
+        badge = f'<span style="background-color:#fee2e2; color:#b91c1c; padding:2px 8px; border-radius:12px; font-size:0.85rem; font-weight:bold;">要復習 ({score}点)</span>'
+        feedback = "正しいスペルを目と声でインプットして、もう一度書き取りましょう！"
+        status = "incorrect"
+        
+    return {
+        "score": score,
+        "status": status,
+        "diff_html": f'<div style="font-size:1.25rem; margin-bottom:6px;">{diff_html_str}</div> <div>{badge}</div>',
+        "is_perfect": False,
+        "is_accent_only": False,
+        "feedback": feedback
+    }
+
 def clean_speech_text(text):
     if not text:
         return ""
@@ -805,6 +894,7 @@ menu = st.sidebar.radio(
         "🧩 最重要チャンクマスター (50選 / Smart SRS)",
         "🎬 映画・ドラマ・アニメ名セリフ (Sentence Mining)",
         "🗂️ 単語フラッシュカード (Smart Timer SRS)",
+        "⌨️ 単語スペリング＆タイピング特訓 (入力テスト)",
         "🔍 単語帳＆実用辞書 (220語+)",
         "📐 文法公式＆活用マスター",
         "📝 文法復習セッション (SRS)",
@@ -1538,6 +1628,267 @@ elif menu == "🗂️ 単語フラッシュカード (Smart Timer SRS)":
                 if m_col4.button("🔵 簡単！ (4)", key="m_rate_4", use_container_width=True):
                     m_reps, m_inv, m_ef, m_date = calculate_sm2(int(v_card["repetitions"]), int(v_card["interval_days"]), float(v_card["ease_factor"]), 4)
                     submit_vocab_record(m_reps, m_inv, m_ef, m_date, 0, 4, 1)
+
+
+# 7. ⌨️ 単語スペリング＆タイピング特訓 (入力テスト)
+elif menu == "⌨️ 単語スペリング＆タイピング特訓 (入力テスト)":
+    st.title("⌨️ 単語スペリング＆タイピング特訓 (生成効果テスト)")
+    st.caption("実際にキーボードで文字を打ち込むことで運動記憶と想起力を刺激し、確実にスペイン語のスペルと語彙を脳に焼き付けます。")
+
+    dict_df = get_dict_df()
+    today_str = date.today().isoformat()
+
+    # フィルターとモード選択
+    t_col1, t_col2, t_col3 = st.columns([1.2, 1, 1])
+    with t_col1:
+        typing_test_mode = st.selectbox(
+            "🎯 テスト形式",
+            ["📝 日 ➔ 西 瞬間スペルテスト (意味を見て書く)", "🎧 リスニング・ディクテーション (音声を聴いて書く)", "🧩 例文コンテキスト穴埋め (文脈で書く)"],
+            key="typing_mode_sel"
+        )
+    with t_col2:
+        vocab_categories = ["すべて"] + list(dict_df["category"].unique())
+        sel_typing_cat = st.selectbox("🏷️ カテゴリー", vocab_categories, key="typing_cat_sel")
+    with t_col3:
+        typing_scope = st.selectbox("🎯 出題範囲", ["本日の復習待ち ＋ 未学習（推奨）", "全単語からランダム特訓", "苦手単語（ミス多数）集中特訓"], key="typing_scope_sel")
+
+    filtered_df = dict_df if sel_typing_cat == "すべて" else dict_df[dict_df["category"] == sel_typing_cat]
+
+    if typing_scope == "本日の復習待ち ＋ 未学習（推奨）":
+        due_vocab = filtered_df[(filtered_df["next_review_date"] <= today_str) | (filtered_df["repetitions"] == 0)].sort_values(
+            ["mistake_count", "next_review_date"], ascending=[False, True]
+        )
+    elif typing_scope == "苦手単語（ミス多数）集中特訓":
+        due_vocab = filtered_df[filtered_df["mistake_count"] > 0].sort_values("mistake_count", ascending=False)
+    else:
+        due_vocab = filtered_df.sample(frac=1, random_state=42) if len(filtered_df) > 0 else filtered_df
+
+    if len(due_vocab) == 0:
+        st.success(f"🎉 素晴らしい！「{sel_typing_cat}」のスペリング復習対象はすべて完了しています！")
+        st.balloons()
+    else:
+        if "typing_idx" not in st.session_state or st.session_state.typing_idx >= len(due_vocab):
+            st.session_state.typing_idx = 0
+            st.session_state.typing_submitted = False
+            st.session_state.typing_user_input = ""
+
+        t_card = due_vocab.iloc[st.session_state.typing_idx]
+        
+        # 進捗バー
+        st.caption(f"タイピング特訓中：残り {len(due_vocab) - st.session_state.typing_idx} / {len(due_vocab)} 語（全 {len(filtered_df)} 語）")
+        st.progress((st.session_state.typing_idx + 1) / len(due_vocab))
+
+        if "typing_start_time" not in st.session_state or st.session_state.get("typing_current_card_id") != t_card["id"]:
+            st.session_state.typing_start_time = time.time()
+            st.session_state.typing_current_card_id = int(t_card["id"])
+            st.session_state.typing_elapsed_sec = 0.0
+            st.session_state.typing_submitted = False
+            st.session_state.typing_user_input = ""
+
+        # 問題カードUI (モード別)
+        status_label = "🌱 未学習" if t_card["repetitions"] == 0 else f"🔄 復習中 (Lv{t_card['repetitions']} / 間隔:{t_card['interval_days']}日)"
+        if t_card["repetitions"] >= 4:
+            status_label = f"🏆 定着済み (Lv{t_card['repetitions']} / 間隔:{t_card['interval_days']}日)"
+
+        if "日 ➔ 西" in typing_test_mode:
+            # 📝 日 ➔ 西 瞬間スペルテスト
+            st.markdown(
+                '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #2563eb; padding:22px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">'
+                f'<span style="background-color:#eff6ff; color:#1d4ed8; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">📝 スペル入力 ｜ {t_card["category"]}</span>'
+                f'<span style="font-size:0.9rem; color:#64748b;">{status_label}</span>'
+                '</div>'
+                '<div style="font-size:0.95rem; color:#2563eb; font-weight:bold; margin-bottom:8px;">🤔 この日本語の意味に対応するスペイン語単語を正確に入力してください：</div>'
+                f'<div style="font-size:1.6rem; font-weight:bold; color:#0f172a; line-height:1.5; background-color:#f8fafc; padding:16px; border-radius:8px; border-left:5px solid #2563eb;">{t_card["meanings"]}</div>'
+                f'<div style="font-size:1.0rem; color:#64748b; margin-top:10px;">品詞: <b style="color:#2563eb;">{t_card["pos"]}</b> ｜ 発音の目安: <b style="color:#64748b;">【 {t_card["reading"]} 】</b></div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+        elif "リスニング" in typing_test_mode:
+            # 🎧 リスニング・ディクテーション
+            st.markdown(
+                '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #7c3aed; padding:22px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">'
+                f'<span style="background-color:#f5f3ff; color:#6d28d9; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">🎧 リスニング・ディクテーション ｜ {t_card["category"]}</span>'
+                f'<span style="font-size:0.9rem; color:#64748b;">{status_label}</span>'
+                '</div>'
+                '<div style="font-size:0.95rem; color:#7c3aed; font-weight:bold; margin-bottom:8px;">🎧 ネイティブ音声を聴いて、聴こえたスペイン語単語をタイピングしてください：</div>'
+                f'<div style="font-size:1.0rem; color:#64748b; margin-top:4px;">品詞ヒント: <b style="color:#7c3aed;">{t_card["pos"]}</b></div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+            render_audio_player(t_card["word"], label="🔊 単語音声を聴く")
+        else:
+            # 🧩 例文コンテキスト穴埋め
+            masked_example = str(t_card["examples"]).replace(str(t_card["word"]), "[ ____________ ]")
+            st.markdown(
+                '<div style="background-color:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #059669; padding:22px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">'
+                f'<span style="background-color:#ecfdf5; color:#047857; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">🧩 例文穴埋めタイピング ｜ {t_card["category"]}</span>'
+                f'<span style="font-size:0.9rem; color:#64748b;">{status_label}</span>'
+                '</div>'
+                '<div style="font-size:0.95rem; color:#059669; font-weight:bold; margin-bottom:8px;">💬 例文の空欄 [ ________ ] に入る適切なスペイン語単語を入力してください：</div>'
+                f'<div style="font-size:1.25rem; font-weight:bold; color:#0f172a; line-height:1.7; background-color:#f0fdf4; padding:16px; border-radius:8px; border-left:5px solid #059669;">{masked_example}</div>'
+                f'<div style="font-size:1.0rem; color:#475569; margin-top:10px;">単語の意味: <b style="color:#047857;">{t_card["meanings"]}</b></div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+
+        # 🔤 特殊文字ソフトパレット
+        st.markdown("<div style='font-size:0.88rem; color:#64748b; font-weight:bold; margin-bottom:4px;'>🔤 スペイン語特殊文字パレット（クリックで追記）:</div>", unsafe_allow_html=True)
+        pal_cols = st.columns(11)
+        special_chars = ["á", "é", "í", "ó", "ú", "ñ", "ü", "¿", "¡"]
+        for i, char in enumerate(special_chars):
+            if pal_cols[i].button(char, key=f"pal_{char}_{st.session_state.typing_idx}", use_container_width=True):
+                st.session_state.typing_user_input = st.session_state.get("typing_user_input", "") + char
+                st.rerun()
+        if pal_cols[9].button("⌫ 戻す", key=f"pal_bk_{st.session_state.typing_idx}", use_container_width=True):
+            curr = st.session_state.get("typing_user_input", "")
+            if curr:
+                st.session_state.typing_user_input = curr[:-1]
+                st.rerun()
+        if pal_cols[10].button("🗑️ 全消去", key=f"pal_clr_{st.session_state.typing_idx}", use_container_width=True):
+            st.session_state.typing_user_input = ""
+            st.rerun()
+
+        # 入力フォーム
+        with st.form(key=f"typing_form_{st.session_state.typing_idx}_{t_card['id']}"):
+            u_input = st.text_input(
+                "⌨️ スペイン語を入力:",
+                value=st.session_state.get("typing_user_input", ""),
+                placeholder="例: tener, hablar, gracias...",
+                key=f"t_input_field_{st.session_state.typing_idx}"
+            )
+            btn_submit = st.form_submit_button("🔥 判定・回答する (Enter)", type="primary", use_container_width=True)
+
+        if btn_submit:
+            st.session_state.typing_user_input = u_input
+            st.session_state.typing_elapsed_sec = max(0.1, round(time.time() - st.session_state.typing_start_time, 1))
+            st.session_state.typing_submitted = True
+            st.rerun()
+
+        # 判定結果＆リッチ解説表示
+        if st.session_state.get("typing_submitted", False):
+            user_ans = st.session_state.get("typing_user_input", "")
+            target_word = str(t_card["word"])
+            diff_res = generate_diff_html(user_ans, target_word)
+
+            # Diff 表示ボックス
+            res_box_border = "#16a34a" if diff_res["is_perfect"] else ("#ca8a04" if diff_res["score"] >= 70 else "#dc2626")
+            res_box_bg = "#f0fdf4" if diff_res["is_perfect"] else ("#fefce8" if diff_res["score"] >= 70 else "#fef2f2")
+
+            st.markdown(
+                f'<div style="background-color:{res_box_bg}; border:2px solid {res_box_border}; padding:18px 22px; border-radius:12px; margin-top:14px; margin-bottom:16px;">'
+                f'<div style="font-size:0.95rem; font-weight:bold; color:#475569; margin-bottom:6px;">🔍 スペル判定結果:</div>'
+                f'{diff_res["diff_html"]}'
+                f'<div style="font-size:0.95rem; color:#334155; margin-top:8px; line-height:1.6;">💡 <b>アドバイス:</b> {diff_res["feedback"]}</div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+
+            # 正解単語のフルカード（発音・活用・例文）
+            conj_section = ""
+            if pd.notna(t_card.get("conjugation")) and str(t_card.get("conjugation")).strip():
+                conj_section = (
+                    '<hr style="border:none; border-top:1px solid #bfdbfe; margin:14px 0;">'
+                    '<div style="background-color:#eff6ff; border:1px solid #bfdbfe; border-left:6px solid #2563eb; padding:14px 18px; border-radius:8px;">'
+                    '<h4 style="color:#1d4ed8; margin-top:0; margin-bottom:8px;">🔄 人称変化（全6人称）/ 性数変化:</h4>'
+                    f'<div style="font-size:1.05rem; line-height:1.9; color:#1e293b;">{t_card["conjugation"]}</div>'
+                    '</div>'
+                )
+
+            st.markdown(
+                '<div style="background-color:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:20px; border-radius:10px; margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:baseline;">'
+                f'<h2 style="font-size:2.4rem; color:#0f172a; margin:0; font-weight:800;">{t_card["word"]}</h2>'
+                f'<span style="font-size:1.15rem; color:#64748b;">【 {t_card["reading"]} 】 <b style="color:#0284c7;">{t_card["pos"]}</b></span>'
+                '</div>'
+                '<hr style="border:none; border-top:1px solid #fde68a; margin:12px 0;">'
+                '<h4 style="color:#b45309; margin-top:0;">📖 日本語の意味:</h4>'
+                f'<div style="font-size:1.2rem; line-height:1.7; color:#1e293b; font-weight:bold;">{t_card["meanings"]}</div>'
+                f'{conj_section}'
+                '<hr style="border:none; border-top:1px solid #fde68a; margin:14px 0;">'
+                '<h4 style="color:#0284c7; margin-top:0;">💬 会話例文 (単語分解つき):</h4>'
+                f'<div style="font-size:1.05rem; line-height:1.8; color:#1e293b;">{t_card["examples"]}</div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+
+            # 音声再生＆発音判定
+            render_audio_player(t_card["word"], label="🔊 単語音声")
+            render_pronunciation_checker(t_card["word"])
+            render_audio_player(t_card["examples"], label="🔊 会話例文音声")
+
+            # 忘却曲線（Smart SRS）の計算
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT reviewed_at FROM study_logs WHERE card_id = ? AND item_type = 'word' ORDER BY id DESC LIMIT 1", (int(t_card["id"]),))
+            last_rev_row = c.fetchone()
+            conn.close()
+            
+            days_since = int(t_card["interval_days"])
+            if last_rev_row and last_rev_row[0]:
+                try:
+                    last_rev_dt = datetime.datetime.fromisoformat(last_rev_row[0]).date()
+                    days_since = (date.today() - last_rev_dt).days
+                except Exception:
+                    pass
+
+            elapsed_typing_sec = float(st.session_state.get("typing_elapsed_sec", 4.0))
+            is_correct_typing = diff_res["is_perfect"] or diff_res["is_accent_only"]
+
+            st_reps, st_inv, st_ef, st_next_date, st_rating, st_lbl, st_detail = calculate_smart_srs(
+                int(t_card["repetitions"]), int(t_card["interval_days"]), float(t_card["ease_factor"]),
+                int(t_card["mistake_count"]), elapsed_typing_sec, days_since, is_correct=is_correct_typing, pos=t_card["pos"]
+            )
+            sf_reps, sf_inv, sf_ef, sf_next_date, sf_rating, sf_lbl, sf_detail = calculate_smart_srs(
+                int(t_card["repetitions"]), int(t_card["interval_days"]), float(t_card["ease_factor"]),
+                int(t_card["mistake_count"]), elapsed_typing_sec, days_since, is_correct=False, pos=t_card["pos"]
+            )
+
+            # AI解析フィードバックUI
+            srs_card_html = (
+                '<div style="background-color:#f0fdf4; border:1px solid #bbf7d0; border-left:6px solid #16a34a; padding:14px 18px; border-radius:8px; margin-top:14px; margin-bottom:16px;">'
+                '<div style="display:flex; justify-content:space-between; align-items:center;">'
+                '<span style="font-weight:bold; color:#15803d; font-size:1.05rem;">🧠 AI忘却曲線判定:</span>'
+                f'<span style="background-color:#dcfce7; color:#166534; padding:2px 10px; border-radius:10px; font-weight:bold; font-size:0.85rem;">{st_lbl}</span>'
+                '</div>'
+                f'<div style="font-size:0.9rem; color:#334155; margin-top:4px;">{st_detail}</div>'
+                '</div>'
+            )
+            st.markdown(srs_card_html, unsafe_allow_html=True)
+
+            def submit_typing_record(reps, interval, ef, next_date, mistakes_delta, rating, is_correct):
+                init_logs_db()
+                record_study_time(elapsed_typing_sec, "word_typing", 1)
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                new_mistakes = max(0, int(t_card["mistake_count"]) + mistakes_delta)
+                cursor.execute('''
+                UPDATE dictionary 
+                SET repetitions = ?, interval_days = ?, ease_factor = ?, next_review_date = ?, mistake_count = ?
+                WHERE id = ?
+                ''', (reps, interval, ef, next_date, new_mistakes, int(t_card["id"])))
+                cursor.execute('''
+                INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                VALUES (?, ?, ?, ?, 'word_typing')
+                ''', (int(t_card["id"]), rating, is_correct, datetime.datetime.now().isoformat()))
+                conn.commit()
+                conn.close()
+
+                st.session_state.typing_idx += 1
+                st.session_state.typing_submitted = False
+                st.session_state.typing_user_input = ""
+                st.session_state.typing_start_time = time.time()
+                st.rerun()
+
+            t_ans_col1, t_ans_col2 = st.columns([1.5, 1])
+            with t_ans_col1:
+                if st.button(f"⭕️ 次の単語へ（{st_inv}日後に再出題 ➡️）", type="primary", use_container_width=True):
+                    submit_typing_record(st_reps, st_inv, st_ef, st_next_date, 0 if is_correct_typing else 1, st_rating, 1 if is_correct_typing else 0)
+            with t_ans_col2:
+                if st.button("❌ 苦手単語に追加して明日復習", use_container_width=True):
+                    submit_typing_record(sf_reps, sf_inv, sf_ef, sf_next_date, 1, sf_rating, 0)
 
 # 3. 🔍 単語帳＆実用辞書 (220語+)
 elif menu == "🔍 単語帳＆実用辞書 (220語+)":
