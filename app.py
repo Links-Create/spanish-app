@@ -400,6 +400,7 @@ def save_last_lesson_idx(idx):
         cursor.execute("INSERT OR REPLACE INTO user_state (key, value) VALUES ('last_lesson_idx', ?)", (str(idx),))
         conn.commit()
         conn.close()
+        trigger_auto_cloud_sync()
     except Exception:
         pass
 
@@ -763,6 +764,180 @@ def get_logs_df():
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
     return df
 
+
+# --- ☁️ 端末間クラウド自動同期エンジン (PC ⇄ スマホ) ---
+import urllib.request
+import json
+import hashlib
+import time
+
+CLOUD_SYNC_API = "https://api.restful-api.dev/objects"
+CLOUD_HEADERS = {"Content-Type": "application/json", "User-Agent": "SpanishStudyApp/2.0"}
+
+def get_sync_key_hash(sync_key: str) -> str:
+    if not sync_key:
+        return ""
+    return hashlib.sha256(sync_key.strip().lower().encode("utf-8")).hexdigest()[:16]
+
+def merge_and_import_progress(data: dict) -> tuple[bool, str]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # 1. cards のマージ
+        if "cards" in data:
+            for item in data["cards"]:
+                cursor.execute("""
+                UPDATE cards 
+                SET repetitions = MAX(repetitions, ?), 
+                    interval_days = MAX(interval_days, ?), 
+                    ease_factor = ?, 
+                    next_review_date = COALESCE(?, next_review_date), 
+                    mistake_count = MAX(mistake_count, ?)
+                WHERE lesson_title = ? OR id = ?
+                """, (item.get("repetitions", 0), item.get("interval_days", 0), item.get("ease_factor", 2.5), item.get("next_review_date"), item.get("mistake_count", 0), item.get("lesson_title"), item.get("id")))
+                
+        # 2. dictionary のマージ
+        if "dictionary" in data:
+            for item in data["dictionary"]:
+                cursor.execute("""
+                UPDATE dictionary 
+                SET repetitions = MAX(repetitions, ?), 
+                    interval_days = MAX(interval_days, ?), 
+                    ease_factor = ?, 
+                    next_review_date = COALESCE(?, next_review_date), 
+                    mistake_count = MAX(mistake_count, ?)
+                WHERE word = ? OR id = ?
+                """, (item.get("repetitions", 0), item.get("interval_days", 0), item.get("ease_factor", 2.5), item.get("next_review_date"), item.get("mistake_count", 0), item.get("word"), item.get("id")))
+
+        # 3. chunks のマージ
+        if "chunks" in data:
+            for item in data["chunks"]:
+                cursor.execute("""
+                UPDATE chunks 
+                SET repetitions = MAX(repetitions, ?), 
+                    interval_days = MAX(interval_days, ?), 
+                    ease_factor = ?, 
+                    next_review_date = COALESCE(?, next_review_date), 
+                    mistake_count = MAX(mistake_count, ?)
+                WHERE chunk = ? OR id = ?
+                """, (item.get("repetitions", 0), item.get("interval_days", 0), item.get("ease_factor", 2.5), item.get("next_review_date"), item.get("mistake_count", 0), item.get("chunk"), item.get("id")))
+
+        # 4. study_logs の重複なし追加マージ
+        if "study_logs" in data:
+            cursor.execute("SELECT reviewed_at, card_id, item_type FROM study_logs")
+            existing_logs = {(r[0], r[1], r[2]) for r in cursor.fetchall()}
+            for item in data["study_logs"]:
+                key = (item.get("reviewed_at"), item.get("card_id", 0), item.get("item_type", "grammar"))
+                if key not in existing_logs:
+                    cursor.execute("""
+                    INSERT INTO study_logs (card_id, rating, is_correct, reviewed_at, item_type)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, (item.get("card_id", 0), item.get("rating", 4), item.get("is_correct", 1), item.get("reviewed_at"), item.get("item_type", "grammar")))
+                    existing_logs.add(key)
+
+        # 5. study_time_logs の重複なし追加合算マージ
+        if "study_time_logs" in data:
+            cursor.execute("SELECT created_at FROM study_time_logs WHERE created_at IS NOT NULL")
+            existing_time_logs = {r[0] for r in cursor.fetchall()}
+            for item in data["study_time_logs"]:
+                c_at = item.get("created_at")
+                if c_at and c_at not in existing_time_logs:
+                    cursor.execute("""
+                    INSERT INTO study_time_logs (study_date, seconds, category, item_count, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, (item.get("study_date"), item.get("seconds", 0.0), item.get("category", "general"), item.get("item_count", 1), c_at))
+                    existing_time_logs.add(c_at)
+
+        conn.commit()
+        conn.close()
+        return True, "🎉 クラウドとローカルの学習データが正常に合算・同期されました！"
+    except Exception as e:
+        return False, f"同期エラー: {str(e)}"
+
+def push_to_cloud(sync_key: str, cloud_obj_id: str = None) -> str:
+    try:
+        if not sync_key:
+            return ""
+        key_hash = get_sync_key_hash(sync_key)
+        export_dict = json.loads(export_progress_json())
+        
+        payload = {
+            "name": f"es_sync_{key_hash}",
+            "data": {
+                "sync_key": sync_key,
+                "sync_key_hash": key_hash,
+                "updated_at": time.time(),
+                "progress_data": export_dict
+            }
+        }
+        
+        if cloud_obj_id:
+            url = f"{CLOUD_SYNC_API}/{cloud_obj_id}"
+            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=CLOUD_HEADERS, method="PUT")
+            try:
+                with urllib.request.urlopen(req, timeout=6) as res:
+                    return cloud_obj_id
+            except Exception:
+                pass
+                
+        # POST 新規
+        req = urllib.request.Request(CLOUD_SYNC_API, data=json.dumps(payload).encode("utf-8"), headers=CLOUD_HEADERS, method="POST")
+        with urllib.request.urlopen(req, timeout=6) as res:
+            obj = json.loads(res.read().decode("utf-8"))
+            new_id = obj["id"]
+            return new_id
+    except Exception as e:
+        return ""
+
+def pull_from_cloud(cloud_obj_id: str) -> tuple[bool, str]:
+    try:
+        if not cloud_obj_id:
+            return False, "クラウドIDが指定されていません"
+        url = f"{CLOUD_SYNC_API}/{cloud_obj_id}"
+        req = urllib.request.Request(url, headers=CLOUD_HEADERS, method="GET")
+        with urllib.request.urlopen(req, timeout=6) as res:
+            obj = json.loads(res.read().decode("utf-8"))
+            progress_data = obj.get("data", {}).get("progress_data")
+            if progress_data:
+                return merge_and_import_progress(progress_data)
+            return False, "クラウド上のデータが空でした"
+    except Exception as e:
+        return False, f"クラウド取得エラー: {str(e)}"
+
+def trigger_auto_cloud_sync():
+    sync_key = st.session_state.get("cloud_sync_key", "")
+    cloud_id = st.session_state.get("cloud_sync_id", "")
+    if sync_key:
+        new_id = push_to_cloud(sync_key, cloud_id)
+        if new_id and new_id != cloud_id:
+            st.session_state.cloud_sync_id = new_id
+            save_user_state_kv("cloud_sync_id", new_id)
+
+
+def get_user_state_kv(key: str, default: str = "") -> str:
+    try:
+        init_user_state()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT value FROM user_state WHERE key = ?", (key,))
+        row = c.fetchone()
+        conn.close()
+        return str(row[0]) if row and row[0] else default
+    except Exception:
+        return default
+
+def save_user_state_kv(key: str, value: str):
+    try:
+        init_user_state()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO user_state (key, value) VALUES (?, ?)", (key, str(value)))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
 def export_progress_json():
     conn = sqlite3.connect(DB_PATH)
     data = {
@@ -946,6 +1121,66 @@ st.sidebar.markdown(f'''
     </div>
 </div>
 ''', unsafe_allow_html=True)
+
+
+# --- ☁️ 端末間クラウド自動同期 (初期化・URL判定) ---
+query_params = st.query_params
+q_sync = query_params.get("sync")
+q_id = query_params.get("id")
+
+if "cloud_sync_key" not in st.session_state:
+    st.session_state.cloud_sync_key = q_sync if q_sync else get_user_state_kv("cloud_sync_key", "")
+if "cloud_sync_id" not in st.session_state:
+    st.session_state.cloud_sync_id = q_id if q_id else get_user_state_kv("cloud_sync_id", "")
+
+# 起動時の初回クラウド自動同期（まだ同期していない場合）
+if "cloud_sync_initialized" not in st.session_state:
+    st.session_state.cloud_sync_initialized = True
+    if st.session_state.cloud_sync_id:
+        pull_from_cloud(st.session_state.cloud_sync_id)
+
+with st.sidebar.expander("☁️ 端末クラウド自動同期 (PC ⇄ スマホ)", expanded=(not bool(st.session_state.cloud_sync_key))):
+    if not st.session_state.cloud_sync_key:
+        st.markdown("<div style='font-size:0.85rem; color:#475569; margin-bottom:8px;'>合言葉を決めて入力すると、PCとスマホで<b>学習時間と進捗が全自動で合算・同期</b>されます！</div>", unsafe_allow_html=True)
+        in_sync_key = st.text_input("🔑 合言葉 (同期キー)", placeholder="例: tanaka-spanish-2026", key="input_new_sync_key")
+        if st.button("🚀 同期を開始する", type="primary", use_container_width=True):
+            if in_sync_key.strip():
+                st.session_state.cloud_sync_key = in_sync_key.strip()
+                save_user_state_kv("cloud_sync_key", in_sync_key.strip())
+                new_c_id = push_to_cloud(in_sync_key.strip())
+                st.session_state.cloud_sync_id = new_c_id
+                save_user_state_kv("cloud_sync_id", new_c_id)
+                st.query_params["sync"] = in_sync_key.strip()
+                st.query_params["id"] = new_c_id
+                st.success("🎉 クラウド自動同期が有効化されました！")
+                st.rerun()
+    else:
+        st.markdown(f"<div style='background-color:#dcfce7; color:#15803d; padding:6px 12px; border-radius:6px; font-weight:bold; font-size:0.9rem; margin-bottom:8px;'>🟢 自動同期中: <code>{st.session_state.cloud_sync_key}</code></div>", unsafe_allow_html=True)
+        
+        sync_share_url = f"https://links-create-spanish-app-app-korqai.streamlit.app/?sync={st.session_state.cloud_sync_key}&id={st.session_state.cloud_sync_id}"
+        st.caption("📱 **スマホでこのURLを開くだけで自動同期完了:**")
+        st.code(sync_share_url, language="text")
+        
+        s_col1, s_col2 = st.columns(2)
+        with s_col1:
+            if st.button("🔄 今すぐ同期", use_container_width=True):
+                if st.session_state.cloud_sync_id:
+                    pull_from_cloud(st.session_state.cloud_sync_id)
+                push_to_cloud(st.session_state.cloud_sync_key, st.session_state.cloud_sync_id)
+                st.success("同期完了！")
+                st.rerun()
+        with s_col2:
+            if st.button("🔌 同期解除", use_container_width=True):
+                st.session_state.cloud_sync_key = ""
+                st.session_state.cloud_sync_id = ""
+                save_user_state_kv("cloud_sync_key", "")
+                save_user_state_kv("cloud_sync_id", "")
+                if "sync" in st.query_params:
+                    del st.query_params["sync"]
+                if "id" in st.query_params:
+                    del st.query_params["id"]
+                st.rerun()
+
 
 menu = st.sidebar.radio(
     "メニューを選択",
