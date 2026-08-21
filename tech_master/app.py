@@ -8,7 +8,6 @@ import time
 import os
 import urllib.request
 import hashlib
-import streamlit.components.v1 as components
 
 # ==========================================
 # ページ基本設定
@@ -21,34 +20,6 @@ st.set_page_config(
 )
 
 TECH_DB_PATH = "tech_master.db"
-
-# ==========================================
-# Web Speech API (英語ネイティブ発音)
-# ==========================================
-def render_english_audio_player(text, label="🔊 英語発音を聴く"):
-    clean_text = text.replace('"', '\\"').replace("'", "\\'").replace('\n', ' ').strip()
-    btn_id = "btn_" + hashlib.md5(clean_text.encode('utf-8')).hexdigest()[:10]
-    
-    html_code = f"""
-    <div style="display:inline-block; margin-right:8px; margin-bottom:6px;">
-        <button id="{btn_id}" onclick="playAudio_{btn_id}()" 
-            style="background:#0284c7; color:white; border:none; padding:5px 12px; border-radius:6px; font-weight:bold; font-size:0.85rem; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.1); display:flex; align-items:center; gap:4px;">
-            {label}
-        </button>
-    </div>
-    <script>
-    function playAudio_{btn_id}() {{
-        if ('speechSynthesis' in window) {{
-            window.speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance("{clean_text}");
-            u.lang = 'en-US';
-            u.rate = 0.95;
-            window.speechSynthesis.speak(u);
-        }}
-    }}
-    </script>
-    """
-    components.html(html_code, height=42)
 
 # ==========================================
 # クラウド自動同期エンジン (PC ⇄ スマホ)
@@ -383,7 +354,7 @@ with st.sidebar.expander("☁️ 端末クラウド自動同期 (PC ⇄ スマ�
     else:
         st.markdown(f"<div style='background-color:#dcfce7; color:#15803d; padding:6px 12px; border-radius:6px; font-weight:bold; font-size:0.9rem; margin-bottom:8px;'>🟢 自動同期中: <code>{st.session_state.tech_sync_key}</code></div>", unsafe_allow_html=True)
         st.caption("📱 **スマホでこのURLを開くだけで自動同期完了:**")
-        share_url = f"https://techmaster-business.streamlit.app/?sync={st.session_state.tech_sync_key}&id={st.session_state.tech_sync_id}"
+        share_url = f"?sync={st.session_state.tech_sync_key}&id={st.session_state.tech_sync_id}"
         st.code(share_url, language="text")
         
         sc1, sc2 = st.columns(2)
@@ -427,29 +398,25 @@ t_min = int(stats["today_sec"] // 60)
 t_sec = int(stats["today_sec"] % 60)
 tot_min = int(stats["total_sec"] // 60)
 
-st.markdown(
-    f"""
-    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 20px; box-shadow:0 2px 4px rgba(0,0,0,0.03); margin-bottom:20px; display:flex; justify-content:space-around; align-items:center; flex-wrap:wrap; gap:12px;">
-        <div style="text-align:center;">
-            <div style="font-size:0.8rem; color:#64748b; font-weight:bold;">⏱️ 本日の学習時間</div>
-            <div style="font-size:1.3rem; font-weight:800; color:#0284c7;">{t_min}分 {t_sec}秒 <span style="font-size:0.9rem; color:#64748b;">({stats['today_items']}問)</span></div>
-        </div>
-        <div style="text-align:center;">
-            <div style="font-size:0.8rem; color:#64748b; font-weight:bold;">⏳ 累計学習時間</div>
-            <div style="font-size:1.3rem; font-weight:800; color:#1e293b;">{tot_min}分 <span style="font-size:0.9rem; color:#64748b;">({stats['total_items']}問)</span></div>
-        </div>
-        <div style="text-align:center;">
-            <div style="font-size:0.8rem; color:#64748b; font-weight:bold;">🔥 継続ストリーク</div>
-            <div style="font-size:1.3rem; font-weight:800; color:#ea580c;">{stats['streak']} 日連続</div>
-        </div>
-        <div style="text-align:center;">
-            <div style="font-size:0.8rem; color:#64748b; font-weight:bold;">🧠 定着済み用語</div>
-            <div style="font-size:1.3rem; font-weight:800; color:#16a34a;">{stats['mastered_count']} / {stats['total_terms_count']} 語</div>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+header_html = f"""<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 20px; box-shadow:0 2px 4px rgba(0,0,0,0.03); margin-bottom:20px; display:flex; justify-content:space-around; align-items:center; flex-wrap:wrap; gap:12px;">
+<div style="text-align:center;">
+<div style="font-size:0.8rem; color:#64748b; font-weight:bold;">⏱️ 本日の学習時間</div>
+<div style="font-size:1.3rem; font-weight:800; color:#0284c7;">{t_min}分 {t_sec}秒 <span style="font-size:0.9rem; color:#64748b;">({stats['today_items']}問)</span></div>
+</div>
+<div style="text-align:center;">
+<div style="font-size:0.8rem; color:#64748b; font-weight:bold;">⏳ 累計学習時間</div>
+<div style="font-size:1.3rem; font-weight:800; color:#1e293b;">{tot_min}分 <span style="font-size:0.9rem; color:#64748b;">({stats['total_items']}問)</span></div>
+</div>
+<div style="text-align:center;">
+<div style="font-size:0.8rem; color:#64748b; font-weight:bold;">🔥 継続ストリーク</div>
+<div style="font-size:1.3rem; font-weight:800; color:#ea580c;">{stats['streak']} 日連続</div>
+</div>
+<div style="text-align:center;">
+<div style="font-size:0.8rem; color:#64748b; font-weight:bold;">🧠 定着済み用語</div>
+<div style="font-size:1.3rem; font-weight:800; color:#16a34a;">{stats['mastered_count']} / {stats['total_terms_count']} 語</div>
+</div>
+</div>"""
+st.markdown(header_html, unsafe_allow_html=True)
 
 # ==========================================
 # 1. 🗂️ 例え話で学ぶ！用語 Smart SRS
@@ -503,24 +470,18 @@ if menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
             status_lbl = f"🏆 定着済み (Lv{card['repetitions']} / 間隔:{card['interval_days']}日)"
 
         # 表側カード (Question)
-        st.markdown(
-            f"""
-            <div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0284c7; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                    <span style="background:#e0f2fe; color:#0369a1; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{card['category']}</span>
-                    <span style="font-size:0.9rem; color:#64748b;">{status_lbl}</span>
-                </div>
-                <div style="font-size:2.2rem; font-weight:800; color:#0f172a; margin-bottom:4px;">{card['term']}</div>
-                <div style="font-size:1.1rem; color:#64748b; margin-bottom:14px;">【 読み: <b>{card['reading']}</b> 】 ｜ 英語: <i>{card['english_full']}</i></div>
-                <div style="font-size:1.15rem; color:#334155; line-height:1.6; background:#f8fafc; padding:16px; border-radius:8px; border-left:4px solid #0284c7;">
-                    🤔 <b>この用語の本質・例え話と、実務でのメリットは何でしょうか？</b>（頭の中で0.5秒で思い浮かべてください）
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        render_english_audio_player(card["english_full"] if card["english_full"] else card["term"], label=f"🔊 「{card['term']}」の英語発音を聴く")
+        front_card_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #0284c7; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+<span style="background:#e0f2fe; color:#0369a1; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{card['category']}</span>
+<span style="font-size:0.9rem; color:#64748b;">{status_lbl}</span>
+</div>
+<div style="font-size:2.2rem; font-weight:800; color:#0f172a; margin-bottom:4px;">{card['term']}</div>
+<div style="font-size:1.1rem; color:#64748b; margin-bottom:14px;">【 読み: <b>{card['reading']}</b> 】 ｜ 英語: <i>{card['english_full']}</i></div>
+<div style="font-size:1.15rem; color:#334155; line-height:1.6; background:#f8fafc; padding:16px; border-radius:8px; border-left:4px solid #0284c7;">
+🤔 <b>この用語の本質・例え話と、実務でのメリットは何でしょうか？</b>（頭の中で0.5秒で思い浮かべてください）
+</div>
+</div>"""
+        st.markdown(front_card_html, unsafe_allow_html=True)
 
         if not st.session_state.srs_term_revealed:
             if st.button("💡 答え・解説・神質問を見る (Enter / Space)", type="primary", use_container_width=True):
@@ -529,32 +490,25 @@ if menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
                 st.rerun()
         else:
             # 裏側カード (Explanation & Metaphor & Phrases)
-            st.markdown(
-                f"""
-                <div style="background:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:22px; border-radius:12px; margin-bottom:16px;">
-                    <h3 style="color:#b45309; margin-top:0; font-size:1.3rem;">💡 中学生でもわかる日常の例え話:</h3>
-                    <div style="font-size:1.15rem; line-height:1.7; color:#1e293b; font-weight:bold; background:#ffffff; padding:14px; border-radius:8px; border:1px solid #fde68a; margin-bottom:16px;">
-                        {card['metaphor']}
-                    </div>
-
-                    <h4 style="color:#0369a1; margin-top:0;">👔 ビジネスインパクト（なぜ会社に必要なのか？）:</h4>
-                    <div style="font-size:1.05rem; line-height:1.6; color:#334155; margin-bottom:16px;">
-                        {card['business_impact']}
-                    </div>
-
-                    <h4 style="color:#15803d; margin-top:0;">🗣️ 打ち合わせでそのまま使える「神質問フレーズ」:</h4>
-                    <div style="font-size:1.05rem; line-height:1.6; color:#14532d; background:#f0fdf4; padding:12px 16px; border-radius:8px; border:1px solid #bbf7d0; font-weight:bold; margin-bottom:16px;">
-                        {card['meeting_phrase']}
-                    </div>
-
-                    <h4 style="color:#dc2626; margin-top:0;">⚠️ 地雷注意点（知ったかぶりNGポイント）:</h4>
-                    <div style="font-size:0.95rem; line-height:1.6; color:#991b1b;">
-                        {card['pitfall_warning']}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            back_card_html = f"""<div style="background:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:22px; border-radius:12px; margin-bottom:16px;">
+<h3 style="color:#b45309; margin-top:0; font-size:1.3rem;">💡 中学生でもわかる日常の例え話:</h3>
+<div style="font-size:1.15rem; line-height:1.7; color:#1e293b; font-weight:bold; background:#ffffff; padding:14px; border-radius:8px; border:1px solid #fde68a; margin-bottom:16px;">
+{card['metaphor']}
+</div>
+<h4 style="color:#0369a1; margin-top:0;">👔 ビジネスインパクト（なぜ会社に必要なのか？）:</h4>
+<div style="font-size:1.05rem; line-height:1.6; color:#334155; margin-bottom:16px;">
+{card['business_impact']}
+</div>
+<h4 style="color:#15803d; margin-top:0;">🗣️ 打ち合わせでそのまま使える「神質問フレーズ」:</h4>
+<div style="font-size:1.05rem; line-height:1.6; color:#14532d; background:#f0fdf4; padding:12px 16px; border-radius:8px; border:1px solid #bbf7d0; font-weight:bold; margin-bottom:16px;">
+{card['meeting_phrase']}
+</div>
+<h4 style="color:#dc2626; margin-top:0;">⚠️ 地雷注意点（知ったかぶりNGポイント）:</h4>
+<div style="font-size:0.95rem; line-height:1.6; color:#991b1b;">
+{card['pitfall_warning']}
+</div>
+</div>"""
+            st.markdown(back_card_html, unsafe_allow_html=True)
 
             elapsed_sec = float(st.session_state.get("srs_term_elapsed", 3.0))
             st_reps, st_inv, st_ef, st_next_date, st_rating, st_lbl, st_detail = calculate_smart_srs(
@@ -566,15 +520,11 @@ if menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
                 int(card["mistake_count"]), elapsed_sec, is_correct=False
             )
 
-            st.markdown(
-                f"""
-                <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-left:6px solid #16a34a; padding:12px 18px; border-radius:8px; margin-bottom:16px;">
-                    <span style="font-weight:bold; color:#15803d;">🧠 忘却曲線判定: {st_lbl}</span>
-                    <div style="font-size:0.9rem; color:#334155; margin-top:4px;">{st_detail}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            srs_info_html = f"""<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-left:6px solid #16a34a; padding:12px 18px; border-radius:8px; margin-bottom:16px;">
+<span style="font-weight:bold; color:#15803d;">🧠 忘却曲線判定: {st_lbl}</span>
+<div style="font-size:0.9rem; color:#334155; margin-top:4px;">{st_detail}</div>
+</div>"""
+            st.markdown(srs_info_html, unsafe_allow_html=True)
 
             def submit_term_srs(reps, interval, ef, next_date, mistakes_delta, rating, is_correct):
                 record_tech_study_time(elapsed_sec, "term_srs", 1)
@@ -631,27 +581,23 @@ elif menu == "🛡️ 会議・商談 リアル想定問答プラクティス":
         st.session_state.ms_current_id = int(s_card["id"])
         st.session_state.ms_revealed = False
 
-    st.markdown(
-        f"""
-        <div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #7c3aed; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <span style="background:#f5f3ff; color:#6d28d9; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{s_card['category']}</span>
-                <span style="font-size:0.9rem; color:#64748b;">相手: <b>{s_card['counterpart']}</b></span>
-            </div>
-            <h3 style="color:#0f172a; margin-top:0; font-size:1.4rem;">🎯 場面: {s_card['title']}</h3>
-            <div style="background:#faf5ff; border:1px solid #e9d5ff; border-left:5px solid #7c3aed; padding:18px; border-radius:8px; margin-top:14px; margin-bottom:14px;">
-                <div style="font-size:0.9rem; font-weight:bold; color:#6b21a8; margin-bottom:6px;">🗣️ 相手の発言:</div>
-                <div style="font-size:1.25rem; font-weight:bold; color:#1e1b4b; line-height:1.6;">
-                    「{s_card['counterpart_statement']}」
-                </div>
-            </div>
-            <div style="font-size:1.05rem; color:#475569;">
-                🤔 <b>あなたなら、どのように切り返しますか？</b>（相手を不快にさせず、リスクを防ぎ、主導権を握るベストな返しを考えてください）
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    scenario_card_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #7c3aed; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+<span style="background:#f5f3ff; color:#6d28d9; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{s_card['category']}</span>
+<span style="font-size:0.9rem; color:#64748b;">相手: <b>{s_card['counterpart']}</b></span>
+</div>
+<h3 style="color:#0f172a; margin-top:0; font-size:1.4rem;">🎯 場面: {s_card['title']}</h3>
+<div style="background:#faf5ff; border:1px solid #e9d5ff; border-left:5px solid #7c3aed; padding:18px; border-radius:8px; margin-top:14px; margin-bottom:14px;">
+<div style="font-size:0.9rem; font-weight:bold; color:#6b21a8; margin-bottom:6px;">🗣️ 相手の発言:</div>
+<div style="font-size:1.25rem; font-weight:bold; color:#1e1b4b; line-height:1.6;">
+「{s_card['counterpart_statement']}」
+</div>
+</div>
+<div style="font-size:1.05rem; color:#475569;">
+🤔 <b>あなたなら、どのように切り返しますか？</b>（相手を不快にさせず、リスクを防ぎ、主導権を握るベストな返しを考えてください）
+</div>
+</div>"""
+    st.markdown(scenario_card_html, unsafe_allow_html=True)
 
     if not st.session_state.ms_revealed:
         if st.button("💡 プロフェッショナルの模範回答 ＆ 解説を見る", type="primary", use_container_width=True):
@@ -659,21 +605,17 @@ elif menu == "🛡️ 会議・商談 リアル想定問答プラクティス":
             st.session_state.ms_revealed = True
             st.rerun()
     else:
-        st.markdown(
-            f"""
-            <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-left:6px solid #16a34a; padding:22px; border-radius:12px; margin-bottom:16px;">
-                <h3 style="color:#15803d; margin-top:0; font-size:1.3rem;">🌟 模範切り返しフレーズ:</h3>
-                <div style="font-size:1.2rem; line-height:1.7; color:#14532d; font-weight:bold; background:#ffffff; padding:16px; border-radius:8px; border:1px solid #86efac; margin-bottom:16px;">
-                    {s_card['best_response']}
-                </div>
-                <h4 style="color:#0369a1; margin-top:0;">🎯 会議で主導権を握るポイント:</h4>
-                <div style="font-size:1.05rem; line-height:1.6; color:#1e293b;">
-                    {s_card['key_point']}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        best_resp_html = f"""<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-left:6px solid #16a34a; padding:22px; border-radius:12px; margin-bottom:16px;">
+<h3 style="color:#15803d; margin-top:0; font-size:1.3rem;">🌟 模範切り返しフレーズ:</h3>
+<div style="font-size:1.2rem; line-height:1.7; color:#14532d; font-weight:bold; background:#ffffff; padding:16px; border-radius:8px; border:1px solid #86efac; margin-bottom:16px;">
+{s_card['best_response']}
+</div>
+<h4 style="color:#0369a1; margin-top:0;">🎯 会議で主導権を握るポイント:</h4>
+<div style="font-size:1.05rem; line-height:1.6; color:#1e293b;">
+{s_card['key_point']}
+</div>
+</div>"""
+        st.markdown(best_resp_html, unsafe_allow_html=True)
 
         elapsed_ms_sec = float(st.session_state.get("ms_elapsed", 4.0))
         record_tech_study_time(elapsed_ms_sec, "meeting_scenarios", 1)
@@ -710,21 +652,17 @@ elif menu == "⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル
         st.session_state.to_current_id = int(t_item["id"])
         st.session_state.to_answered = False
 
-    st.markdown(
-        f"""
-        <div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #ea580c; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
-            <div style="font-size:0.9rem; color:#c2410c; font-weight:bold; margin-bottom:4px;">⚖️ 意思決定テーマ:</div>
-            <h2 style="color:#0f172a; margin-top:0; font-size:1.6rem;">{t_item['title']}</h2>
-            <div style="font-size:1.25rem; font-weight:bold; color:#1e293b; line-height:1.6; background:#fff7ed; padding:18px; border-radius:8px; border-left:5px solid #ea580c; margin-bottom:16px;">
-                💬 {t_item['scenario']}
-            </div>
-            <div style="font-size:1.05rem; color:#475569; font-weight:bold;">
-                👉 この要件に対して、最も適した技術・アプローチはどっち？
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    tradeoff_card_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #ea580c; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
+<div style="font-size:0.9rem; color:#c2410c; font-weight:bold; margin-bottom:4px;">⚖️ 意思決定テーマ:</div>
+<h2 style="color:#0f172a; margin-top:0; font-size:1.6rem;">{t_item['title']}</h2>
+<div style="font-size:1.25rem; font-weight:bold; color:#1e293b; line-height:1.6; background:#fff7ed; padding:18px; border-radius:8px; border-left:5px solid #ea580c; margin-bottom:16px;">
+💬 {t_item['scenario']}
+</div>
+<div style="font-size:1.05rem; color:#475569; font-weight:bold;">
+👉 この要件に対して、最も適した技術・アプローチはどっち？
+</div>
+</div>"""
+    st.markdown(tradeoff_card_html, unsafe_allow_html=True)
 
     if not st.session_state.to_answered:
         c1, c2 = st.columns(2)
@@ -746,22 +684,18 @@ elif menu == "⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル
         res_border = "#16a34a" if is_correct else "#dc2626"
         res_title = "🎉 正解！完璧な意思決定です！" if is_correct else "⚠️ 惜しい！別の判断軸を確認しましょう。"
         
-        st.markdown(
-            f"""
-            <div style="background:{res_bg}; border:2px solid {res_border}; padding:22px; border-radius:12px; margin-bottom:16px;">
-                <h3 style="color:{res_border}; margin-top:0; font-size:1.3rem;">{res_title}</h3>
-                <div style="font-size:1.15rem; color:#1e293b; margin-bottom:10px;">
-                    あなたの選択: <b>{st.session_state.to_selected_opt}</b> ｜ 正解: <b style="color:#15803d;">{t_item['correct_option']}</b>
-                </div>
-                <hr style="border:none; border-top:1px solid #e2e8f0; margin:12px 0;">
-                <h4 style="color:#0369a1; margin-top:0;">💡 現場での明確な判断理由（トレードオフ）:</h4>
-                <div style="font-size:1.1rem; line-height:1.7; color:#334155;">
-                    {t_item['decision_reason']}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        tradeoff_res_html = f"""<div style="background:{res_bg}; border:2px solid {res_border}; padding:22px; border-radius:12px; margin-bottom:16px;">
+<h3 style="color:{res_border}; margin-top:0; font-size:1.3rem;">{res_title}</h3>
+<div style="font-size:1.15rem; color:#1e293b; margin-bottom:10px;">
+あなたの選択: <b>{st.session_state.to_selected_opt}</b> ｜ 正解: <b style="color:#15803d;">{t_item['correct_option']}</b>
+</div>
+<hr style="border:none; border-top:1px solid #e2e8f0; margin:12px 0;">
+<h4 style="color:#0369a1; margin-top:0;">💡 現場での明確な判断理由（トレードオフ）:</h4>
+<div style="font-size:1.1rem; line-height:1.7; color:#334155;">
+{t_item['decision_reason']}
+</div>
+</div>"""
+        st.markdown(tradeoff_res_html, unsafe_allow_html=True)
 
         record_tech_study_time(float(st.session_state.get("to_elapsed", 4.0)), "tradeoffs", 1)
 
@@ -785,35 +719,28 @@ elif menu == "⚡ 打ち合わせ直前 30秒カンペ (チートシート)":
     sel_theme = st.selectbox("🎯 会議テーマを選択", df_cheat["theme"].tolist())
     c_row = df_cheat[df_cheat["theme"] == sel_theme].iloc[0]
 
-    st.markdown(
-        f"""
-        <div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #2563eb; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:20px;">
-            <h2 style="color:#0f172a; margin-top:0; font-size:1.5rem;">📋 {c_row['theme']}</h2>
-            
-            <div style="margin-top:16px; background:#eff6ff; border:1px solid #bfdbfe; padding:18px; border-radius:8px; margin-bottom:16px;">
-                <h3 style="color:#1d4ed8; margin-top:0; font-size:1.15rem;">📌 今日絶対に出てくる必須キーワード 5選:</h3>
-                <div style="font-size:1.05rem; line-height:1.8; color:#1e293b; white-space:pre-line; font-weight:bold;">
-                    {c_row['must_know_terms']}
-                </div>
-            </div>
-
-            <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:18px; border-radius:8px; margin-bottom:16px;">
-                <h3 style="color:#15803d; margin-top:0; font-size:1.15rem;">🚨 相手に絶対に確認すべき「地雷質問（突っ込みポイント）」:</h3>
-                <div style="font-size:1.05rem; line-height:1.8; color:#14532d; white-space:pre-line; font-weight:bold;">
-                    {c_row['trap_questions']}
-                </div>
-            </div>
-
-            <div style="background:#fef2f2; border:1px solid #fecaca; padding:18px; border-radius:8px;">
-                <h3 style="color:#dc2626; margin-top:0; font-size:1.15rem;">⚠️ 知ったかぶりNGポイント（恥をかかないための注意点）:</h3>
-                <div style="font-size:1.0rem; line-height:1.7; color:#991b1b;">
-                    {c_row['ng_behavior']}
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    cheat_card_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #2563eb; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:20px;">
+<h2 style="color:#0f172a; margin-top:0; font-size:1.5rem;">📋 {c_row['theme']}</h2>
+<div style="margin-top:16px; background:#eff6ff; border:1px solid #bfdbfe; padding:18px; border-radius:8px; margin-bottom:16px;">
+<h3 style="color:#1d4ed8; margin-top:0; font-size:1.15rem;">📌 今日絶対に出てくる必須キーワード 5選:</h3>
+<div style="font-size:1.05rem; line-height:1.8; color:#1e293b; white-space:pre-line; font-weight:bold;">
+{c_row['must_know_terms']}
+</div>
+</div>
+<div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:18px; border-radius:8px; margin-bottom:16px;">
+<h3 style="color:#15803d; margin-top:0; font-size:1.15rem;">🚨 相手に絶対に確認すべき「地雷質問（突っ込みポイント）」:</h3>
+<div style="font-size:1.05rem; line-height:1.8; color:#14532d; white-space:pre-line; font-weight:bold;">
+{c_row['trap_questions']}
+</div>
+</div>
+<div style="background:#fef2f2; border:1px solid #fecaca; padding:18px; border-radius:8px;">
+<h3 style="color:#dc2626; margin-top:0; font-size:1.15rem;">⚠️ 知ったかぶりNGポイント（恥をかかないための注意点）:</h3>
+<div style="font-size:1.0rem; line-height:1.7; color:#991b1b;">
+{c_row['ng_behavior']}
+</div>
+</div>
+</div>"""
+    st.markdown(cheat_card_html, unsafe_allow_html=True)
 
 # ==========================================
 # 5. ⌨️ 略語・IT用語 スペリング＆タイピング特訓
@@ -838,20 +765,16 @@ elif menu == "⌨️ 略語・IT用語 スペリング＆タイピング特訓":
 
     target_word = str(t_card["correct_answer"]).strip()
 
-    st.markdown(
-        f"""
-        <div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #059669; padding:24px; border-radius:12px; margin-bottom:16px;">
-            <div style="font-size:0.9rem; color:#059669; font-weight:bold; margin-bottom:6px;">🏷️ {t_card['category']}</div>
-            <div style="font-size:1.3rem; font-weight:bold; color:#0f172a; line-height:1.6; background:#f0fdf4; padding:16px; border-radius:8px; border-left:5px solid #059669; margin-bottom:12px;">
-                💬 {t_card['quiz_sentence']}
-            </div>
-            <div style="font-size:0.95rem; color:#64748b;">
-                💡 <b>ヒント（日常の例え）:</b> {t_card['metaphor'][:60]}...
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    typing_q_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #059669; padding:24px; border-radius:12px; margin-bottom:16px;">
+<div style="font-size:0.9rem; color:#059669; font-weight:bold; margin-bottom:6px;">🏷️ {t_card['category']}</div>
+<div style="font-size:1.3rem; font-weight:bold; color:#0f172a; line-height:1.6; background:#f0fdf4; padding:16px; border-radius:8px; border-left:5px solid #059669; margin-bottom:12px;">
+💬 {t_card['quiz_sentence']}
+</div>
+<div style="font-size:0.95rem; color:#64748b;">
+💡 <b>ヒント（日常の例え）:</b> {t_card['metaphor'][:60]}...
+</div>
+</div>"""
+    st.markdown(typing_q_html, unsafe_allow_html=True)
 
     with st.form(key=f"type_form_{st.session_state.type_idx}"):
         u_in = st.text_input("⌨️ 正しい用語名・略語を入力してください:", value=st.session_state.get("type_input", ""), placeholder="例: RAG, SaaS, ゼロトラスト...", key=f"t_in_field_{st.session_state.type_idx}")
@@ -868,20 +791,15 @@ elif menu == "⌨️ 略語・IT用語 スペリング＆タイピング特訓":
         
         diff_bg = "#f0fdf4" if is_exact else "#fef2f2"
         diff_border = "#16a34a" if is_exact else "#dc2626"
+        res_text = "🎉 完璧！正解です！" if is_exact else "⚠️ 惜しい！正解を確認しましょう。"
         
-        st.markdown(
-            f"""
-            <div style="background:{diff_bg}; border:2px solid {diff_border}; padding:18px 22px; border-radius:10px; margin-bottom:16px;">
-                <div style="font-weight:bold; font-size:1.1rem; color:#0f172a; margin-bottom:6px;">
-                    {'🎉 完璧！正解です！' if is_exact else '⚠️ 惜しい！正解を確認しましょう。'}
-                </div>
-                <div style="font-size:1.05rem; color:#334155;">
-                    あなたの入力: <code>{user_val}</code> ｜ 正解: <b style="color:#15803d;">{target_word}</b> ({t_card['english_full']})
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        typing_res_html = f"""<div style="background:{diff_bg}; border:2px solid {diff_border}; padding:18px 22px; border-radius:10px; margin-bottom:16px;">
+<div style="font-weight:bold; font-size:1.1rem; color:#0f172a; margin-bottom:6px;">{res_text}</div>
+<div style="font-size:1.05rem; color:#334155;">
+あなたの入力: <code>{user_val}</code> ｜ 正解: <b style="color:#15803d;">{target_word}</b> ({t_card['english_full']})
+</div>
+</div>"""
+        st.markdown(typing_res_html, unsafe_allow_html=True)
 
         record_tech_study_time(3.0, "typing", 1)
 
@@ -911,20 +829,16 @@ elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
     st.caption(f"交差シャッフル中：残り {len(df_all) - st.session_state.il_idx} / {len(df_all)} 語")
     st.progress((st.session_state.il_idx + 1) / len(df_all))
 
-    st.markdown(
-        f"""
-        <div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #8b5cf6; padding:24px; border-radius:12px; margin-bottom:16px;">
-            <div style="font-size:0.9rem; color:#8b5cf6; font-weight:bold; margin-bottom:6px;">🏷️ {il_card['category']}</div>
-            <div style="font-size:1.3rem; font-weight:bold; color:#0f172a; line-height:1.6; background:#f5f3ff; padding:18px; border-radius:8px; border-left:5px solid #8b5cf6; margin-bottom:16px;">
-                ❓ {il_card['quiz_sentence']}
-            </div>
-            <div style="font-size:1.0rem; color:#64748b;">
-                💡 <b>日常の例え:</b> {il_card['metaphor']}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    il_q_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #8b5cf6; padding:24px; border-radius:12px; margin-bottom:16px;">
+<div style="font-size:0.9rem; color:#8b5cf6; font-weight:bold; margin-bottom:6px;">🏷️ {il_card['category']}</div>
+<div style="font-size:1.3rem; font-weight:bold; color:#0f172a; line-height:1.6; background:#f5f3ff; padding:18px; border-radius:8px; border-left:5px solid #8b5cf6; margin-bottom:16px;">
+❓ {il_card['quiz_sentence']}
+</div>
+<div style="font-size:1.0rem; color:#64748b;">
+💡 <b>日常の例え:</b> {il_card['metaphor']}
+</div>
+</div>"""
+    st.markdown(il_q_html, unsafe_allow_html=True)
 
     opts = [o.strip() for o in il_card["quiz_options"].split(",")]
     
@@ -941,22 +855,18 @@ elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
         is_right = (st.session_state.il_selected == il_card["correct_answer"])
         bg = "#f0fdf4" if is_right else "#fef2f2"
         bdr = "#16a34a" if is_right else "#dc2626"
-        st.markdown(
-            f"""
-            <div style="background:{bg}; border:2px solid {bdr}; padding:20px; border-radius:10px; margin-bottom:16px;">
-                <div style="font-size:1.2rem; font-weight:bold; color:{bdr}; margin-bottom:6px;">
-                    {'🌟 正解です！' if is_right else '⚠️ 不正解'}
-                </div>
-                <div style="font-size:1.05rem; color:#334155;">
-                    あなたの回答: <b>{st.session_state.il_selected}</b> ｜ 正解: <b style="color:#15803d;">{il_card['correct_answer']}</b>
-                </div>
-                <div style="font-size:0.95rem; color:#1e293b; margin-top:8px;">
-                    👔 <b>ビジネスインパクト:</b> {il_card['business_impact']}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        res_t = "🌟 正解です！" if is_right else "⚠️ 不正解"
+        
+        il_res_html = f"""<div style="background:{bg}; border:2px solid {bdr}; padding:20px; border-radius:10px; margin-bottom:16px;">
+<div style="font-size:1.2rem; font-weight:bold; color:{bdr}; margin-bottom:6px;">{res_t}</div>
+<div style="font-size:1.05rem; color:#334155;">
+あなたの回答: <b>{st.session_state.il_selected}</b> ｜ 正解: <b style="color:#15803d;">{il_card['correct_answer']}</b>
+</div>
+<div style="font-size:0.95rem; color:#1e293b; margin-top:8px;">
+👔 <b>ビジネスインパクト:</b> {il_card['business_impact']}
+</div>
+</div>"""
+        st.markdown(il_res_html, unsafe_allow_html=True)
 
         record_tech_study_time(2.0, "interleaving", 1)
 
