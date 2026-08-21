@@ -380,6 +380,7 @@ with st.sidebar.expander("☁️ 端末クラウド自動同期 (PC ⇄ スマ�
 menu = st.sidebar.radio(
     "🧭 学習メニュー",
     [
+        "🐍 Python 超入門〜実務マスター (初心者特化)",
         "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)",
         "🛡️ 会議・商談 リアル想定問答プラクティス",
         "⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル",
@@ -419,9 +420,119 @@ header_html = f"""<div style="background:#ffffff; border:1px solid #e2e8f0; bord
 st.markdown(header_html, unsafe_allow_html=True)
 
 # ==========================================
+# 0. 🐍 Python 超入門〜実務マスター (初心者特化)
+# ==========================================
+if menu == "🐍 Python 超入門〜実務マスター (初心者特化)":
+    st.title("🐍 Python 超入門〜実務マスター (初心者特化カリキュラム)")
+    st.caption("プログラミング完全初心者・文系ビジネスパーソン向け！変数やデータ型などの最初の一歩から、Excel自動化・Pandas・スクレイピングまで段階別にマスターできます。")
+
+    conn = sqlite3.connect(TECH_DB_PATH)
+    df_py = pd.read_sql_query("SELECT * FROM tech_terms WHERE category LIKE '%Python%'", conn)
+    conn.close()
+
+    py_cats = ["🌟 全レベルを順番に学習 (推奨)"] + list(df_py["category"].unique())
+    sel_py_cat = st.selectbox("🎯 学習レベルを選択してください：", py_cats, key="sel_py_level")
+
+    if sel_py_cat == "🌟 全レベルを順番に学習 (推奨)":
+        target_py_df = df_py.sort_values("id")
+    else:
+        target_py_df = df_py[df_py["category"] == sel_py_cat].sort_values("id")
+
+    if len(target_py_df) == 0:
+        st.info("対象のPython用語がありません。")
+    else:
+        if "py_idx" not in st.session_state or st.session_state.py_idx >= len(target_py_df):
+            st.session_state.py_idx = 0
+            st.session_state.py_revealed = False
+
+        card = target_py_df.iloc[st.session_state.py_idx]
+
+        st.caption(f"Python特訓中：残り {len(target_py_df) - st.session_state.py_idx} / {len(target_py_df)} 語（対象全 {len(target_py_df)} 語）")
+        st.progress((st.session_state.py_idx + 1) / len(target_py_df))
+
+        if "py_start_time" not in st.session_state or st.session_state.get("py_current_id") != card["id"]:
+            st.session_state.py_start_time = time.time()
+            st.session_state.py_current_id = int(card["id"])
+            st.session_state.py_revealed = False
+
+        status_lbl = "🌱 未学習" if card["repetitions"] == 0 else f"🔄 復習中 (Lv{card['repetitions']} / 間隔:{card['interval_days']}日)"
+
+        # 表側カード
+        front_card_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #10b981; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+<span style="background:#d1fae5; color:#065f46; padding:4px 12px; border-radius:16px; font-size:0.9rem; font-weight:bold;">{card['category']}</span>
+<span style="font-size:0.9rem; color:#64748b;">{status_lbl}</span>
+</div>
+<div style="font-size:2.2rem; font-weight:800; color:#0f172a; margin-bottom:4px;">{card['term']}</div>
+<div style="font-size:1.1rem; color:#64748b; margin-bottom:14px;">【 読み: <b>{card['reading']}</b> 】 ｜ 英語: <i>{card['english_full']}</i></div>
+<div style="font-size:1.15rem; color:#334155; line-height:1.6; background:#f0fdf4; padding:16px; border-radius:8px; border-left:4px solid #10b981;">
+🤔 <b>このPython用語の「日常の例え話」と「実務での使いどころ」は何でしょうか？</b>
+</div>
+</div>"""
+        st.markdown(front_card_html, unsafe_allow_html=True)
+
+        if not st.session_state.py_revealed:
+            if st.button("💡 答え・日常の例え・公式定義・コード例を見る", type="primary", use_container_width=True):
+                st.session_state.py_elapsed = max(0.1, round(time.time() - st.session_state.py_start_time, 1))
+                st.session_state.py_revealed = True
+                st.rerun()
+        else:
+            official_def_section = ""
+            if card.get("official_definition") and str(card["official_definition"]).strip():
+                official_def_section = f"""<div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:4px solid #475569; padding:12px 16px; border-radius:8px; margin-bottom:16px;">
+<div style="font-size:0.85rem; font-weight:bold; color:#475569; margin-bottom:4px;">📖 正確な公式定義:</div>
+<div style="font-size:1.0rem; line-height:1.6; color:#1e293b;">{card['official_definition']}</div>
+</div>"""
+
+            back_card_html = f"""<div style="background:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:22px; border-radius:12px; margin-bottom:16px;">
+<h3 style="color:#b45309; margin-top:0; font-size:1.3rem;">💡 中学生でもわかる日常の例え話:</h3>
+<div style="font-size:1.2rem; line-height:1.7; color:#1e293b; font-weight:bold; background:#ffffff; padding:16px; border-radius:8px; border:2px solid #fde68a; margin-bottom:16px;">
+{card['metaphor']}
+</div>
+{official_def_section}
+<div style="background:#eff6ff; border:1px solid #bfdbfe; border-left:4px solid #2563eb; padding:12px 16px; border-radius:8px; margin-bottom:16px;">
+<div style="font-size:0.85rem; font-weight:bold; color:#1d4ed8; margin-bottom:4px;">👔 実務・ビジネスでの活用メリット（なぜ必要なのか？）:</div>
+<div style="font-size:1.0rem; line-height:1.6; color:#1e293b;">{card['business_impact']}</div>
+</div>
+<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #16a34a; padding:12px 16px; border-radius:8px; margin-bottom:16px;">
+<div style="font-size:0.85rem; font-weight:bold; color:#15803d; margin-bottom:4px;">🗣️ 打ち合わせ・開発現場で使える実践フレーズ:</div>
+<div style="font-size:1.05rem; line-height:1.6; color:#14532d; font-weight:bold;">{card['meeting_phrase']}</div>
+</div>
+<div style="background:#fef2f2; border:1px solid #fecaca; border-left:4px solid #dc2626; padding:12px 16px; border-radius:8px;">
+<div style="font-size:0.85rem; font-weight:bold; color:#b91c1c; margin-bottom:4px;">⚠️ 初心者がやりがちなミス・注意点:</div>
+<div style="font-size:0.95rem; line-height:1.6; color:#991b1b;">{card['pitfall_warning']}</div>
+</div>
+</div>"""
+            st.markdown(back_card_html, unsafe_allow_html=True)
+
+            elapsed_sec = float(st.session_state.get("py_elapsed", 3.0))
+            st_reps, st_inv, st_ef, st_next_date, st_rating, st_lbl, st_detail = calculate_smart_srs(
+                int(card["repetitions"]), int(card["interval_days"]), float(card["ease_factor"]),
+                int(card["mistake_count"]), elapsed_sec, is_correct=True
+            )
+
+            record_tech_study_time(elapsed_sec, "python_curriculum", 1)
+
+            if st.button("⭕️ 次のPython用語へ進む ➡️", type="primary", use_container_width=True):
+                conn = sqlite3.connect(TECH_DB_PATH)
+                c = conn.cursor()
+                c.execute("""
+                UPDATE tech_terms 
+                SET repetitions = repetitions + 1, interval_days = ?, ease_factor = ?, next_review_date = ?
+                WHERE id = ?
+                """, (st_inv, st_ef, st_next_date, int(card["id"])))
+                conn.commit()
+                conn.close()
+
+                st.session_state.py_idx += 1
+                st.session_state.py_revealed = False
+                st.session_state.py_start_time = time.time()
+                st.rerun()
+
+# ==========================================
 # 1. 🗂️ 例え話で学ぶ！用語 Smart SRS
 # ==========================================
-if menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
+elif menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
     st.title("🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)")
     st.caption("小難しいIT定義ではなく『日常の例え話』と『打ち合わせで使える神質問』で、非エンジニアでも直感的に本質が脳に焼き付きます。")
 
@@ -639,7 +750,7 @@ elif menu == "🛡️ 会議・商談 リアル想定問答プラクティス":
 # ==========================================
 elif menu == "⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル":
     st.title("⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル (意思決定マトリクス)")
-    st.caption("「RAG vs ファインチューニング」「ゼロトラスト vs VPN」など、実務で最も問われる技術選定の判断軸を瞬間的にジャッジする訓練です。")
+    st.caption("「RAG vs ファインチューニング」「ゼロトラスト vs VPN」「請負 vs 準委任」など、実務で最も問われる技術選定の判断軸を瞬間的にジャッジする訓練です。")
 
     conn = sqlite3.connect(TECH_DB_PATH)
     df_tradeoffs = pd.read_sql_query("SELECT * FROM tradeoffs", conn)
@@ -755,7 +866,7 @@ elif menu == "⚡ 打ち合わせ直前 30秒カンペ (チートシート)":
 # ==========================================
 elif menu == "⌨️ 略語・IT用語 スペリング＆タイピング特訓":
     st.title("⌨️ 略語・IT用語 スペリング＆タイピング特訓")
-    st.caption("英語略語（RAG, SaaS, EDR等）やキーワードを実際にキーボードで入力し、文字単位Diffで運動記憶に焼き付けます。")
+    st.caption("英語略語（RAG, SaaS, EDR, WBS等）やキーワードを実際にキーボードで入力し、文字単位Diffで運動記憶に焼き付けます。")
 
     conn = sqlite3.connect(TECH_DB_PATH)
     df_terms = pd.read_sql_query("SELECT * FROM tech_terms", conn)
@@ -822,13 +933,13 @@ elif menu == "⌨️ 略語・IT用語 スペリング＆タイピング特訓":
 # ==========================================
 elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
     st.title("🔀 5大分野 インターリービング実戦シャッフル")
-    st.caption("AI、DX、セキュリティ、Python、Web基礎の全分野からランダム出題され、実務の打ち合わせ現場での『瞬時の引き出し力』を極限まで高めます。")
+    st.caption("AI、DX、セキュリティ、Python、Web基礎、見積もり・契約の全分野からランダム出題され、実務現場での『瞬時の引き出し力』を極限まで高めます。")
 
     conn = sqlite3.connect(TECH_DB_PATH)
     df_all_terms = pd.read_sql_query("SELECT * FROM tech_terms", conn)
     conn.close()
 
-    # セッション内にシャッフルされたID順序を固定保持（Rerun時の問題すり替わりを防止）
+    # セッション内にシャッフルされたID順序を固定保持
     if "il_term_ids" not in st.session_state or len(st.session_state.il_term_ids) != len(df_all_terms):
         st.session_state.il_term_ids = df_all_terms["id"].sample(frac=1, random_state=int(time.time()) % 1000).tolist()
         st.session_state.il_idx = 0
@@ -896,7 +1007,6 @@ elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
             st.session_state.il_answered = False
             st.session_state.il_selected = None
             st.rerun()
-
 
 # ==========================================
 # 7. 📊 学習進捗ダッシュボード ＆ 💾 バックアップ
