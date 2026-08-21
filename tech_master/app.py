@@ -10,7 +10,7 @@ import io
 import contextlib
 import urllib.request
 import hashlib
-import difflib
+import random
 
 # ==========================================
 # ページ基本設定
@@ -383,8 +383,9 @@ with st.sidebar.expander("☁️ 端末クラウド自動同期 (PC ⇄ スマ�
 menu = st.sidebar.radio(
     "🧭 学習メニュー",
     [
-        "💻 Python 実践コード入力テスト道場 (NEW!)",
-        "🐍 Python 超入門〜実務マスター (初心者特化)",
+        "🧩 Python 初級〜実務 4択クイズ特訓 (選択式)",
+        "💻 Python 実践コード入力テスト道場 (入力式)",
+        "🐍 Python 超入門〜実務マスター (用語カード)",
         "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)",
         "🛡️ 会議・商談 リアル想定問答プラクティス",
         "⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル",
@@ -424,9 +425,111 @@ header_html = f"""<div style="background:#ffffff; border:1px solid #e2e8f0; bord
 st.markdown(header_html, unsafe_allow_html=True)
 
 # ==========================================
-# 0. 💻 Python 実践コード入力テスト道場
+# 0. 🧩 Python 初級〜実務 4択クイズ特訓 (選択式)
 # ==========================================
-if menu == "💻 Python 実践コード入力テスト道場 (NEW!)":
+if menu == "🧩 Python 初級〜実務 4択クイズ特訓 (選択式)":
+    st.title("🧩 Python 初級〜実務 4択クイズ特訓 (選択式)")
+    st.caption("スマホ片手でサクサク解ける！基本文法、コードの実行結果予測、データ型、Pandasの使い方まで、四択クイズで直感的にマスターできます。")
+
+    conn = sqlite3.connect(TECH_DB_PATH)
+    try:
+        df_quizzes = pd.read_sql_query("SELECT * FROM python_quiz_questions", conn)
+    except Exception:
+        import seed_python_quizzes
+        seed_python_quizzes.init_and_seed_python_quizzes(TECH_DB_PATH)
+        df_quizzes = pd.read_sql_query("SELECT * FROM python_quiz_questions", conn)
+    conn.close()
+
+    if len(df_quizzes) == 0:
+        st.info("クイズデータを読み込み中です。少々お待ちください。")
+    else:
+        lvl_list = ["🌟 全レベルから出題 (推奨)"] + list(df_quizzes["level"].unique())
+        sel_lvl = st.selectbox("🎯 レベルを選択してください：", lvl_list, key="sel_quiz_level")
+
+        if sel_lvl == "🌟 全レベルから出題 (推奨)":
+            quiz_df = df_quizzes.sort_values("id")
+        else:
+            quiz_df = df_quizzes[df_quizzes["level"] == sel_lvl].sort_values("id")
+
+        if "pq_idx" not in st.session_state or st.session_state.pq_idx >= len(quiz_df):
+            st.session_state.pq_idx = 0
+            st.session_state.pq_answered = False
+            st.session_state.pq_selected = None
+
+        q_item = quiz_df.iloc[st.session_state.pq_idx]
+
+        st.caption(f"クイズ特訓中：残り {len(quiz_df) - st.session_state.pq_idx} / {len(quiz_df)} 問（対象全 {len(quiz_df)} 問）")
+        st.progress((st.session_state.pq_idx + 1) / len(quiz_df))
+
+        if "pq_start_time" not in st.session_state or st.session_state.get("pq_current_id") != q_item["id"]:
+            st.session_state.pq_start_time = time.time()
+            st.session_state.pq_current_id = int(q_item["id"])
+            st.session_state.pq_answered = False
+            st.session_state.pq_selected = None
+
+        code_snippet_html = ""
+        if q_item.get("code_snippet") and str(q_item["code_snippet"]).strip():
+            code_snippet_html = f"""<pre style="background:#1e293b; color:#38bdf8; padding:14px; border-radius:8px; font-family:monospace; font-size:1.05rem; margin:12px 0;">{q_item['code_snippet']}</pre>"""
+
+        quiz_q_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #8b5cf6; padding:24px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+<span style="background:#ede9fe; color:#6d28d9; padding:4px 12px; border-radius:16px; font-size:0.85rem; font-weight:bold;">{q_item['level']}</span>
+<span style="font-size:0.9rem; color:#64748b;">第 {st.session_state.pq_idx + 1} 問 / {len(quiz_df)}</span>
+</div>
+<h3 style="color:#0f172a; margin-top:0; font-size:1.35rem; line-height:1.5;">❓ {q_item['question']}</h3>
+{code_snippet_html}
+<div style="font-size:1.0rem; color:#64748b;">
+👉 正しい選択肢を1つ選んでください：
+</div>
+</div>"""
+        st.markdown(quiz_q_html, unsafe_allow_html=True)
+
+        raw_opts = [o.strip() for o in str(q_item["options"]).split(",") if o.strip()]
+        correct_ans = str(q_item["correct_answer"]).strip()
+
+        if not st.session_state.get("pq_answered", False):
+            # 2列グリッドで押しやすく配置
+            q_c1, q_c2 = st.columns(2)
+            for i, opt in enumerate(raw_opts):
+                target_col = q_c1 if (i % 2 == 0) else q_c2
+                with target_col:
+                    if st.button(opt, key=f"pq_opt_{q_item['id']}_{i}", use_container_width=True):
+                        st.session_state.pq_selected = opt
+                        st.session_state.pq_answered = True
+                        st.session_state.pq_elapsed = max(0.1, round(time.time() - st.session_state.pq_start_time, 1))
+                        st.rerun()
+        else:
+            user_choice = str(st.session_state.get("pq_selected", "")).strip()
+            is_right = (user_choice.lower() == correct_ans.lower()) or (user_choice in correct_ans) or (correct_ans in user_choice)
+            res_bg = "#f0fdf4" if is_right else "#fef2f2"
+            res_bdr = "#16a34a" if is_right else "#dc2626"
+            res_title = "🎉 完璧！正解です！" if is_right else "⚠️ 惜しい！別の選択肢です。"
+
+            quiz_res_html = f"""<div style="background:{res_bg}; border:2px solid {res_bdr}; padding:20px; border-radius:10px; margin-bottom:16px;">
+<div style="font-size:1.25rem; font-weight:bold; color:{res_bdr}; margin-bottom:8px;">{res_title}</div>
+<div style="font-size:1.05rem; color:#334155; margin-bottom:10px;">
+あなたの回答: <b>{user_choice}</b> ｜ 正解: <b style="color:#15803d;">{correct_ans}</b>
+</div>
+<hr style="border:none; border-top:1px solid #e2e8f0; margin:10px 0;">
+<div style="font-size:1.0rem; color:#1e293b; line-height:1.7;">
+💡 <b>解説:</b> {q_item['explanation']}
+</div>
+</div>"""
+            st.markdown(quiz_res_html, unsafe_allow_html=True)
+
+            record_tech_study_time(float(st.session_state.get("pq_elapsed", 3.0)), "python_quiz", 1)
+
+            if st.button("⭕️ 次のクイズへ進む ➡️", type="primary", use_container_width=True):
+                st.session_state.pq_idx = (st.session_state.pq_idx + 1) % len(quiz_df)
+                st.session_state.pq_answered = False
+                st.session_state.pq_selected = None
+                st.session_state.pq_start_time = time.time()
+                st.rerun()
+
+# ==========================================
+# 1. 💻 Python 実践コード入力テスト道場
+# ==========================================
+elif menu == "💻 Python 実践コード入力テスト道場 (入力式)":
     st.title("💻 Python 実践コード入力テスト道場 (初級〜実務)")
     st.caption("実際にキーボードでPythonの基本コードを書いて、実行＆判定する実践トレーニングです。穴埋め・コード入力でプログラミングの指の記憶を定着させます。")
 
@@ -517,13 +620,11 @@ if menu == "💻 Python 実践コード入力テスト道場 (NEW!)":
 
             is_correct = (normalize_code(user_raw) == normalize_code(target_raw))
 
-            # 実際のPythonコード実行（安全なキャプチャ）
             exec_output = ""
             exec_error = ""
             try:
                 buffer = io.StringIO()
                 with contextlib.redirect_stdout(buffer):
-                    # 安全なローカルスコープで実行
                     test_scope = {
                         "name": "太郎",
                         "first_name": "太郎",
@@ -578,9 +679,9 @@ if menu == "💻 Python 実践コード入力テスト道場 (NEW!)":
                 st.rerun()
 
 # ==========================================
-# 0. 🐍 Python 超入門〜実務マスター (初心者特化)
+# 2. 🐍 Python 超入門〜実務マスター (用語カード)
 # ==========================================
-elif menu == "🐍 Python 超入門〜実務マスター (初心者特化)":
+elif menu == "🐍 Python 超入門〜実務マスター (用語カード)":
     st.title("🐍 Python 超入門〜実務マスター (初心者特化カリキュラム)")
     st.caption("プログラミング完全初心者・文系ビジネスパーソン向け！変数やデータ型などの最初の一歩から、Excel自動化・Pandas・スクレイピングまで段階別にマスターできます。")
 
@@ -688,7 +789,7 @@ elif menu == "🐍 Python 超入門〜実務マスター (初心者特化)":
                 st.rerun()
 
 # ==========================================
-# 1. 🗂️ 例え話で学ぶ！用語 Smart SRS
+# 3. 🗂️ 例え話で学ぶ！用語 Smart SRS
 # ==========================================
 elif menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
     st.title("🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)")
@@ -758,7 +859,7 @@ elif menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
                 st.session_state.srs_term_revealed = True
                 st.rerun()
         else:
-            # 裏側カード (Explanation & Metaphor & Official Definition & Phrases)
+            # 裏側カード
             official_def_section = ""
             if card.get("official_definition") and str(card["official_definition"]).strip():
                 official_def_section = f"""<div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:4px solid #475569; padding:12px 16px; border-radius:8px; margin-bottom:16px;">
@@ -834,7 +935,7 @@ elif menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
                     submit_term_srs(sf_reps, sf_inv, sf_ef, sf_next_date, 1, sf_rating, 0)
 
 # ==========================================
-# 2. 🛡️ 会議・商談 リアル想定問答プラクティス
+# 4. 🛡️ 会議・商談 リアル想定問答プラクティス
 # ==========================================
 elif menu == "🛡️ 会議・商談 リアル想定問答プラクティス":
     st.title("🛡️ 会議・商談 リアル想定問答プラクティス (攻防切り返し)")
@@ -904,7 +1005,7 @@ elif menu == "🛡️ 会議・商談 リアル想定問答プラクティス":
             st.rerun()
 
 # ==========================================
-# 3. ⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル
+# 5. ⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル
 # ==========================================
 elif menu == "⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル":
     st.title("⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル (意思決定マトリクス)")
@@ -983,7 +1084,7 @@ elif menu == "⚖️ どっちを選ぶ？ 2択トレードオフ判断ドリル
             st.rerun()
 
 # ==========================================
-# 4. ⚡ 打ち合わせ直前 30秒カンペ (チートシート)
+# 6. ⚡ 打ち合わせ直前 30秒カンペ (チートシート)
 # ==========================================
 elif menu == "⚡ 打ち合わせ直前 30秒カンペ (チートシート)":
     st.title("⚡ 打ち合わせ直前 30秒カンペ (チートシート)")
@@ -1020,7 +1121,7 @@ elif menu == "⚡ 打ち合わせ直前 30秒カンペ (チートシート)":
     st.markdown(cheat_card_html, unsafe_allow_html=True)
 
 # ==========================================
-# 5. ⌨️ 略語・IT用語 スペリング＆タイピング特訓
+# 7. ⌨️ 略語・IT用語 スペリング＆タイピング特訓
 # ==========================================
 elif menu == "⌨️ 略語・IT用語 スペリング＆タイピング特訓":
     st.title("⌨️ 略語・IT用語 スペリング＆タイピング特訓")
@@ -1087,7 +1188,7 @@ elif menu == "⌨️ 略語・IT用語 スペリング＆タイピング特訓":
             st.rerun()
 
 # ==========================================
-# 6. 🔀 5大分野 インターリービング実戦シャッフル
+# 8. 🔀 5大分野 インターリービング実戦シャッフル
 # ==========================================
 elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
     st.title("🔀 5大分野 インターリービング実戦シャッフル")
@@ -1097,7 +1198,6 @@ elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
     df_all_terms = pd.read_sql_query("SELECT * FROM tech_terms", conn)
     conn.close()
 
-    # セッション内にシャッフルされたID順序を固定保持
     if "il_term_ids" not in st.session_state or len(st.session_state.il_term_ids) != len(df_all_terms):
         st.session_state.il_term_ids = df_all_terms["id"].sample(frac=1, random_state=int(time.time()) % 1000).tolist()
         st.session_state.il_idx = 0
@@ -1167,7 +1267,7 @@ elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
             st.rerun()
 
 # ==========================================
-# 7. 📊 学習進捗ダッシュボード ＆ 💾 バックアップ
+# 9. 📊 学習進捗ダッシュボード ＆ 💾 バックアップ
 # ==========================================
 elif menu == "📊 学習進捗ダッシュボード ＆ 💾 バックアップ":
     st.title("📊 学習進捗ダッシュボード ＆ 💾 バックアップ")
