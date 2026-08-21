@@ -7,6 +7,7 @@ TECH_DB_PATH = "tech_master.db"
 
 # ==========================================
 # 1. 非エンジニア向け 厳選用語マスターデータ
+# （日常の例え話 ＋ 正確な公式定義つき）
 # ==========================================
 TECH_TERMS_DATA = [
     # --- 🤖 生成AI & 業務活用 ---
@@ -15,7 +16,8 @@ TECH_TERMS_DATA = [
         "term": "RAG (検索拡張生成)",
         "english_full": "Retrieval-Augmented Generation",
         "reading": "ラグ / アールエージー",
-        "metaphor": "AIに自社の最新マニュアルを横に置いて見せる『カンニングペーパー』のような仕組み。AIに丸暗記させずに、質問の都度マニュアルを検索して正確に答える。",
+        "metaphor": "『教科書持ち込みOKのテスト（カンニングペーパー付きAI）』。AIに社内データを全部丸暗記させるのではなく、自社の最新マニュアルを机の上に広げて、それを見ながら答えさせる仕組み。",
+        "official_definition": "大規模言語モデル（LLM）が回答を生成する際、外部の文書データベースから関連情報を検索・抽出し、その内容をプロンプトに動的に付与して回答精度と最新性を担保する技術。",
         "business_impact": "社内規程の変更に即日対応可能。AIの適当な嘘（ハルシネーション）を激減させ、社内問い合わせ業務やカスタマーサポートの工数を最大70%削減できる。",
         "meeting_phrase": "「自社データを参照させたいのですが、ファインチューニングではなくRAG構成で小さくPoC（検証）から始めませんか？」",
         "pitfall_warning": "元となるマニュアルやPDFのフォーマットが崩れていると検索精度が落ちるため、社内文書の整理（前処理）が不可欠です。",
@@ -28,7 +30,8 @@ TECH_TERMS_DATA = [
         "term": "ハルシネーション",
         "english_full": "Hallucination (幻覚)",
         "reading": "ハルシネーション",
-        "metaphor": "AIが自信満々につく『知ったかぶりの嘘』。AIは確率でそれらしい言葉を繋げているだけなので、知らないことでも事実のように語ってしまう現象。",
+        "metaphor": "『知ったかぶりでスラスラ嘘をつく後輩』。AIは言葉のつながりの確率で文章を作っているだけなので、本当は知らないことでも自信満々に架空の事実をでっち上げてしまう現象。",
+        "official_definition": "AI（特に大規模言語モデル）が、学習データに含まれない事実無根の情報や誤った推論を、あたかも真実であるかのように出力してしまう現象。",
         "business_impact": "法律・医療・社内規定など正確性が求められる業務で鵜呑みにすると、重大な誤判断や対外的な信用失墜につながる。",
         "meeting_phrase": "「この用途ではハルシネーションが許容されないため、RAGによる根拠引用と、人間の最終チェック（Human-in-the-loop）を必須にしましょう。」",
         "pitfall_warning": "「最新のモデルならハルシネーションはゼロになる」と過信するのは禁物です。",
@@ -41,7 +44,8 @@ TECH_TERMS_DATA = [
         "term": "プロンプトエンジニアリング",
         "english_full": "Prompt Engineering",
         "reading": "プロンプト エンジニアリング",
-        "metaphor": "新入社員に対する『超わかりやすい指示出し（業務指示書の作成）』。前提条件、役割（ペルソナ）、出力形式を明確に指定して意図通りの回答を引き出す技術。",
+        "metaphor": "『新人バイトへの神・指示書』。「適当によろしく！」と丸投げするのではなく、「あなたは接客係です。クレーム対応の返信を、敬語で、3行以内で書いて」と具体的に指示して100点のアウトプットを引き出す技術。",
+        "official_definition": "生成AIから望む精度と形式の出力を得るために、入力文（プロンプト）の指示内容、役割（ロール）、前提条件、制約事項、出力フォーマット等を最適に設計・構築する技術。",
         "business_impact": "指示の出し方一つでAIのアウトプット品質が10倍変わる。社内でテンプレ共有することで、全社的な業務効率が劇的に向上する。",
         "meeting_phrase": "「まずは現場でよく使うプロンプトをテンプレート化し、全社ポータルでナレッジ共有しましょう。」",
         "pitfall_warning": "長すぎる指示や曖昧な指示はAIを混乱させるため、「役割」「制約条件」「出力形式の具体例（Few-shot）」を整理して渡すのがコツです。",
@@ -54,7 +58,8 @@ TECH_TERMS_DATA = [
         "term": "トークン (Token)",
         "english_full": "Token",
         "reading": "トークン",
-        "metaphor": "AIにとっての『言葉の文字数・文字のかたまり（料金メーター）』。日本語だと「ひらがな1文字≒1トークン」「漢字1文字≒2〜3トークン」程度で換算される。",
+        "metaphor": "『AIにとっての文字数メーター（タクシーの料金メーター）』。AIが言葉を食べる「一口のサイズ」。日本語だと「ひらがな1文字≒1トークン」「漢字1文字≒2〜3トークン」程度で換算され、料金が決まる。",
+        "official_definition": "自然言語処理およびLLMがテキストを処理・認識する際の最小構成単位。APIの利用料金（従量課金）やモデルの最大入力可能文字数（コンテキスト長）の基準となる。",
         "business_impact": "AIの従量課金コストや、一度に読み込める文書量（コンテキスト長）の上限を決定づける重要単位。",
         "meeting_phrase": "「このAPIは100万トークンあたり数ドルの従量課金なので、月間リクエスト数から試算するとランニングコストは月数万円に収まります。」",
         "pitfall_warning": "英語に比べて日本語はトークン消費が約1.5〜2倍多くなるため、コスト見積もり時は日本語換算係数を考慮する必要があります。",
@@ -67,7 +72,8 @@ TECH_TERMS_DATA = [
         "term": "マルチモーダル",
         "english_full": "Multimodal AI",
         "reading": "マルチモーダル",
-        "metaphor": "文字だけでなく『目（画像・図面・動画）』や『耳（音声）』も同時に理解できる、人間の五感に近い万能AI。",
+        "metaphor": "『目・耳・口・手がぜんぶ揃った万能ロボット』。文字しか読めないAIから進化し、写真・図面・動画・音声も人間と同じように同時に見て聞いて理解できること。",
+        "official_definition": "テキストだけでなく、画像、音声、動画など複数の異なるモダリティ（データ形式）を統合的に入力・処理・出力できるAIモデルの性質。",
         "business_impact": "手書きの領収書や請求書、製品の写真、音声議事録などをそのままAIに放り込むだけで、データ抽出・異常検知・要約が一瞬で完了する。",
         "meeting_phrase": "「マルチモーダルAIを活用して、現場からスマホで送られた設備写真から破損箇所を自動判定させましょう。」",
         "pitfall_warning": "画像や動画の処理はテキスト処理に比べてAPIコストや処理時間が大きくなる点に注意が必要です。",
@@ -80,7 +86,8 @@ TECH_TERMS_DATA = [
         "term": "ファインチューニング",
         "english_full": "Fine-tuning (微調整)",
         "reading": "ファインチューニング",
-        "metaphor": "すでに大卒レベルの頭脳を持つ汎用AIに、特定の専門業界（医療や法律、自社独自の言い回し）の過去データを追加勉強させて『業界専門家』に育てること。",
+        "metaphor": "『一般大学を出た新人に、自社特有の業界ルールをみっちり追加研修すること』。頭のいいAIの脳みその神経回路そのものを、専門データで書き換えて業界専門家にする。",
+        "official_definition": "既存の学習済み基盤モデルに対し、特定用途や専門分野に特化したデータセットを追加で学習させ、モデルの重みパラメータ自体を微調整・最適化する手法。",
         "business_impact": "特定のトーン＆マナー（文体）や特殊な専門タスクにおいて、汎用AIでは出せない高い精度を実現できる。",
         "meeting_phrase": "「社内文書の検索ならRAGで十分です。業界特有の専門用語の文体再現が必要な段階でファインチューニングを検討しましょう。」",
         "pitfall_warning": "良質な学習データが数千〜数万件必要で、作成コストと時間がかかるため、安易に最初から選ぶのは地雷です。",
@@ -95,7 +102,8 @@ TECH_TERMS_DATA = [
         "term": "SaaS / PaaS / IaaS",
         "english_full": "Software/Platform/Infrastructure as a Service",
         "reading": "サース / パース / イアース",
-        "metaphor": "ピザの提供形態で例えると、SaaS＝『完成したデリバリーピザ（すぐ食べられる）』、PaaS＝『ピザ生地とオーブンのレンタル（具材を乗せて焼くだけ）』、IaaS＝『厨房スペースのレンタル（全部自分で用意）』。",
+        "metaphor": "『ピザの提供形態』。SaaS＝デリバリーピザ（すぐ食べるだけ）、PaaS＝生地とピザ窯のレンタル（好きな具を乗せて焼くだけ）、IaaS＝厨房スペースのレンタル（道具も食材も全部自分で持ち込み）。",
+        "official_definition": "クラウドサービスの提供レイヤー。SaaS＝完成済みソフトウェア（ブラウザで利用）、PaaS＝アプリ開発用の実行基盤環境、IaaS＝仮想サーバーやネットワーク等のITインフラ資源。",
         "business_impact": "自社でサーバー機械を買わずにクラウド利用することで、初期投資ゼロ・即日導入・柔軟なスケールが可能になる。",
         "meeting_phrase": "「標準業務はSaaS（Salesforceやfreee等）を活用し、差別化したい独自機能だけをIaaS/PaaS（AWSやGCP）上に構築するのがベストです。」",
         "pitfall_warning": "SaaSを導入しただけで満足し、現場の業務プロセスを変えないと『使われないDX（宝の持ち腐れ）』になります。",
@@ -108,7 +116,8 @@ TECH_TERMS_DATA = [
         "term": "API連携",
         "english_full": "Application Programming Interface",
         "reading": "エーピーアイ れんけい",
-        "metaphor": "レストランの『注文受付ウェイター』。客席（自社システム）と厨房（外部サービス）の間で、注文と料理（データ）をルール通りに自動で受け渡ししてくれる窓口。",
+        "metaphor": "『レストランの注文受付ウェイター』。客席（自社システム）と厨房（外部の決済や配送システム）の間で、注文と料理（データ）をルール通りに自動で受け渡ししてくれる共通の窓口。",
+        "official_definition": "異なるソフトウェアやシステム同士が、データや機能を相互に自動で呼び出し・連携するための標準的な接続仕様およびインターフェース。",
         "business_impact": "「人が手作業でCSVをダウンロードし、別のシステムに手入力でアップロードする」という無駄な作業を完全ゼロ・自動化できる。",
         "meeting_phrase": "「新システム選定の必須要件として、既存の基幹システムとAPIでリアルタイム連携できるかを確認してください。」",
         "pitfall_warning": "API利用には回数制限（レートリミット）や仕様変更リスクがあるため、エラー時の自動再試行設計が必要です。",
@@ -121,7 +130,8 @@ TECH_TERMS_DATA = [
         "term": "アジャイル開発 vs ウォーターフォール",
         "english_full": "Agile vs Waterfall",
         "reading": "アジャイル / ウォーターフォール",
-        "metaphor": "ウォーターフォール＝『設計図を完璧に引いてから何ヶ月もかけて建てる注文建築』。アジャイル＝『まずは1部屋（最小機能）を作って住みながら、毎週家具や部屋を追加していく増築方式』。",
+        "metaphor": "ウォーターフォール＝『設計図を1年かけて引く注文住宅』。アジャイル＝『まずは1部屋（最小機能）作って住みながら、毎週家具や部屋を増築していく方式』。",
+        "official_definition": "ウォーターフォール＝要件定義・設計・開発・テストを直線的・段階的に進める従来型手法。アジャイル＝1〜2週間単位の短い反復（スプリント）で開発とリリースを繰り返し、柔軟に仕様変更に対応する手法。",
         "business_impact": "変化の激しいAI・新規事業では、アジャイルを採用することで数週間で動くものをリリースし、ユーザーの反応を見ながら素早く軌道修正できる。",
         "meeting_phrase": "「仕様が途中で変わる可能性が高い新規プロジェクトですので、ウォーターフォールではなくアジャイルで進めましょう。」",
         "pitfall_warning": "アジャイルは「計画がない」ことではありません。毎週の優先順位付けとスプリント管理が厳格に求められます。",
@@ -134,7 +144,8 @@ TECH_TERMS_DATA = [
         "term": "MVP (実用最小限の製品)",
         "english_full": "Minimum Viable Product",
         "reading": "エムブイピー",
-        "metaphor": "車を作る時に、いきなり高級セダンを1年かけて完成させるのではなく、まずは『スケートボード』を作って「人が移動できるか」を即座に試すこと。",
+        "metaphor": "『高級セダンを作る前に、まずはスケボーを作って「走れるか」試すこと』。大金をかけて完成品を作る前に、一番大事な機能だけを持った最小の試作品で客が喜ぶかテストする。",
+        "official_definition": "顧客に価値を提供できる最小限の機能だけを備えた製品・サービス。最短期間・最小コストで仮説検証（ユーザーの需要確認）を行うために開発される。",
         "business_impact": "莫大な開発費を投じる前に、顧客が本当にお金を払ってくれるか（ニーズがあるか）を最小限のコストと時間で検証できる。",
         "meeting_phrase": "「最初から全機能を盛り込まず、まずはコア価値だけを検証できるMVPを1ヶ月で作りましょう。」",
         "pitfall_warning": "単なる「手抜きの未完成品」ではなく、「顧客に価値を提供できる最小限の完成度」であることが条件です。",
@@ -147,7 +158,8 @@ TECH_TERMS_DATA = [
         "term": "マイクロサービス",
         "english_full": "Microservices Architecture",
         "reading": "マイクロサービス",
-        "metaphor": "巨大なデパート（一枚岩のシステム）ではなく、専門店街（独立した小さな機能の集まり）。決済、会員管理、在庫管理が別々に動いており、どこかが壊れても全体は止まらない。",
+        "metaphor": "『巨大なデパートではなく、専門店街（独立したお店の集まり）』。「決済」「会員管理」「商品検索」が別々のお店として動いているので、1つが壊れても全体は潰れない。",
+        "official_definition": "システム全体を単一のプログラム（モノリス）で構築せず、独立して開発・デプロイ可能な小さなサービス群をAPIで疎結合に連携させるアーキテクチャ。",
         "business_impact": "一部の機能だけを頻繁にアップデートでき、アクセス急増時もその機能だけサーバーを増強できるため、開発速度と耐障害性が大幅に向上する。",
         "meeting_phrase": "「将来の事業拡大を見据え、初期から密結合なモノリスではなくマイクロサービス指向で疎結合に設計しましょう。」",
         "pitfall_warning": "サービス間の通信や運用管理が複雑になるため、小規模なシステムで無理に導入すると逆に開発コストが増大します。",
@@ -162,7 +174,8 @@ TECH_TERMS_DATA = [
         "term": "ゼロトラスト",
         "english_full": "Zero Trust Security",
         "reading": "ゼロトラスト",
-        "metaphor": "『社内の人間も、社外の人間も、全員を毎回疑う厳重セキュリティ』。一度会社のビルの受付を通っても、会議室、トイレ、執務室のドアごとに毎回指紋認証と顔認証を要求する仕組み。",
+        "metaphor": "『社内の人間でも、全室で毎回指紋認証を求める超厳重セキュリティ』。「一度ビルの受付を通ったから社内は安全」という考えを捨て、社長でも同僚でも毎回疑って身元を確認する。",
+        "official_definition": "「社内ネットワークは信頼できる」という境界防御の前提を廃止し、「すべてのアクセス・端末・ユーザーを常に疑い、毎回厳格に検証・認証・認可する」セキュリティ概念。",
         "business_impact": "テレワークの普及やクラウド利用が進む中、社内ネットワークへの侵入を前提とした被害極小化と安全なリモートワーク環境を両立できる。",
         "meeting_phrase": "「VPNによる境界防御の限界を踏まえ、ID・端末・アクセスの都度認証を行うゼロトラストモデルへ移行しましょう。」",
         "pitfall_warning": "ゼロトラストは特定の製品名ではなく「決して信頼せず、常に検証する」というセキュリティの基本方針・概念です。",
@@ -175,7 +188,8 @@ TECH_TERMS_DATA = [
         "term": "2要素認証 (2FA / MFA)",
         "english_full": "Two-Factor / Multi-Factor Authentication",
         "reading": "にようそ にんしょう / エムエフエー",
-        "metaphor": "『合言葉（パスワード）』だけでなく、スマホに届く『ワンタイムコード（SMS/アプリ）』や『指紋』を組み合わせた2重ロックの鍵。",
+        "metaphor": "『合言葉（パスワード）＋ スマホに届く暗証番号の「2重ロック」』。仮に合言葉の鍵が盗まれても、手元のスマホがないと絶対にドアが開かない仕組み。",
+        "official_definition": "知識情報（パスワード等）、所持情報（スマホ、SMSコード、トークン等）、生体情報（指紋、顔認証等）の異なる3要素のうち、2つ以上を組み合わせて本人確認を行う認証方式。",
         "business_impact": "仮に社員のパスワードが漏洩・推測されても、第三者による不正ログインを99.9%防ぐことができる最強の防御策。",
         "meeting_phrase": "「全社員のGoogle Workspaceおよび主要SaaSへのログインには、MFA（2要素認証）を必須化設定してください。」",
         "pitfall_warning": "SMS認証はSIMスワップ詐欺に弱いため、認証アプリ（Google Authenticator等）や物理セキュリティキーの利用が推奨されます。",
@@ -188,7 +202,8 @@ TECH_TERMS_DATA = [
         "term": "ランサムウェア",
         "english_full": "Ransomware",
         "reading": "ランサムウェア",
-        "metaphor": "『デジタル誘拐犯』。会社のパソコンやサーバーのデータを勝手に暗号化して開けなくし、「元に戻したければ身代金（ビットコイン）を払え」と脅迫する凶悪ウイルス。",
+        "metaphor": "『会社の金庫を勝手に別の南京錠でロックするデジタル誘拐犯』。パソコン内のデータを勝手に暗号化して開けなくし、「元に戻したければ身代金を払え」と脅す凶悪ウイルス。",
+        "official_definition": "感染した端末やサーバーのデータを強制的に暗号化して利用不能にし、暗号解除（復号）と引き換えに金銭（暗号資産等）を要求する悪意あるマルウェア。",
         "business_impact": "病院で電子カルテが停止して診療不能になったり、大企業で工場が数日停止して数十億円の損害が出るなど、事業継続に致命傷を与える。",
         "meeting_phrase": "「ランサムウェア対策として、感染を前提としたEDRの導入と、ネットワークから切り離した不変バックアップ（Immutable Backup）を確保しましょう。」",
         "pitfall_warning": "身代金を支払ってもデータが復旧される保証はなく、犯罪組織へ資金提供することになるため支払いは厳禁です。",
@@ -201,7 +216,8 @@ TECH_TERMS_DATA = [
         "term": "EDR (エンドポイント検知・対処)",
         "english_full": "Endpoint Detection and Response",
         "reading": "イーディーアール",
-        "metaphor": "社内の全パソコンに配置された『24時間監視の警備カメラ＆警備員』。ウイルス対策ソフト（門番）をすり抜けて侵入した不審な動きを即座に見つけ、ネットワークから即遮断する。",
+        "metaphor": "『全社員のパソコンに常駐する24時間専属の警備員』。門番（従来のウイルス対策ソフト）をすり抜けて侵入した泥棒の怪しい動きを即座に見つけ、そのパソコンの通信を秒速で遮断する。",
+        "official_definition": "エンドポイント（PC、サーバー端末）の挙動ログを常時収集・監視し、ウイルス侵入後の異常な振る舞いを早期検知・自動隔離・原因調査するセキュリティソリューション。",
         "business_impact": "万が一マルウェアに侵入されても、被害が他端末に広がる前に数分で封じ込め、侵入経路と影響範囲を完全特定できる。",
         "meeting_phrase": "「従来のアンチウイルス（EPP）だけでなく、すり抜け後の検知・隔離が可能なEDRを全端末に配備しましょう。」",
         "pitfall_warning": "導入しただけではアラートが鳴り止まないため、24時間監視・対応してくれるSOC（セキュリティ監視センター）の運用体制が必要です。",
@@ -214,7 +230,8 @@ TECH_TERMS_DATA = [
         "term": "シャドーIT",
         "english_full": "Shadow IT",
         "reading": "シャドー アイティー",
-        "metaphor": "会社の許可を得ずに、社員が勝手に個人スマホや無料クラウド（LINE, Dropbox, ChatGPT等）で会社の仕事をすること（裏口業務）。",
+        "metaphor": "『会社の許可なく、個人LINEや私用クラウドで仕事データを送る裏口業務』。情シスの目が届かないところで勝手に無料ツールや個人スマホを使うこと。",
+        "official_definition": "企業の情報システム部門の把握や承認を得ずに、従業員が私用のIT機器（スマホ、PC）や無料クラウドサービスを業務に無断利用する行為。",
         "business_impact": "個人アカウント経由で顧客情報や機密データが社外に流出する最大の温床となる。退職者がデータを持ち出すリスクも高い。",
         "meeting_phrase": "「単に個人利用を禁止するだけでなく、業務で使いやすい公認の生成AIやクラウドストレージを会社から支給することが一番のシャドーIT防止策です。」",
         "pitfall_warning": "厳しく禁止しすぎると現場の業務効率が落ち、隠れてコソコソ使う『真のシャドーIT』が増えるため、利便性とのバランスが重要です。",
@@ -229,7 +246,8 @@ TECH_TERMS_DATA = [
         "term": "Pandas (パンダス)",
         "english_full": "Python Data Analysis Library (Pandas)",
         "reading": "パンダス",
-        "metaphor": "『超人化したExcel』。100万行の巨大データでもフリーズせず、0.1秒で複数表の結合（VLOOKUP）、集計（ピボットテーブル）、欠損値の掃除を全自動で完了させるツール。",
+        "metaphor": "『Excelがスーパーサイヤ人化した超高速ツール』。Excelなら固まる100万行のデータでも、0.1秒で複数表の結合（VLOOKUP）、集計（ピボット）、不要データのゴミ掃除を完了させる。",
+        "official_definition": "Pythonでテーブル形式のデータ（行と列からなる表データ）を効率的に操作、加工、集計、分析するための最も標準的なデータ解析ライブラリ。",
         "business_impact": "毎月数時間かかっていた売上レポート集計や顧客データ突合のルーチンワークが、ボタン1つ（1秒）で終わるようになる。",
         "meeting_phrase": "「Excelの手作業集計でミスが多発しているため、PythonのPandasを使ってデータ前処理と月次レポートを自動化しましょう。」",
         "pitfall_warning": "データのカラム名（列名）や日付フォーマットがバラバラだとエラーになるため、入力ルールの統一が必要です。",
@@ -242,7 +260,8 @@ TECH_TERMS_DATA = [
         "term": "Webスクレイピング",
         "english_full": "Web Scraping",
         "reading": "ウェブ スクレイピング",
-        "metaphor": "『Web巡回・コピペ自動ロボット』。競合他社のECサイトやニュースサイトを24時間自動で見回り、価格や商品情報を一瞬で収集してデータベースにまとめる技術。",
+        "metaphor": "『ネット上の情報を24時間自動でコピペして集めてくれるロボット』。競合他社のWebサイトを自動で見回り、価格や商品情報を一瞬で収集・整理する。",
+        "official_definition": "WebサイトのHTML構造をプログラムで自動解析し、特定のテキスト、画像、価格データなどを抽出・収集して保存する技術。",
         "business_impact": "競合の価格変動をリアルタイムで検知して自社の価格戦略を最適化したり、業界トレンドの市場調査を完全自動化できる。",
         "meeting_phrase": "「競合他社の公開価格データをPythonで自動スクレイピングし、日次でダッシュボードに反映させています。」",
         "pitfall_warning": "相手サイトの利用規約で禁止されている場合や、過度なアクセスでサーバーに負荷をかけると法的な問題（業務妨害）になるため注意が必要です。",
@@ -255,7 +274,8 @@ TECH_TERMS_DATA = [
         "term": "Jupyter Notebook",
         "english_full": "Jupyter Notebook",
         "reading": "ジュピター ノートブック",
-        "metaphor": "『実験ノートのようなプログラミング画面』。1行コードを書いて実行すると、その真下にすぐグラフや表が表示されるため、試行錯誤がしやすいデータ分析の標準環境。",
+        "metaphor": "『実験ノートのようなプログラミング画面』。1行コードを書いて実行すると、その真下にすぐグラフや表が出るため、試行錯誤しながらデータ分析ができる。",
+        "official_definition": "Webブラウザ上でPythonコードの記述、実行、対話的なデータ可視化（グラフ・表）、メモの記述を統合して行えるデータ分析用の開発環境。",
         "business_impact": "データサイエンティストが分析したグラフや結果をそのまま社内プレゼン資料や共有レポートとして活用できる。",
         "meeting_phrase": "「分析の途中結果やグラフはJupyter Notebook上にまとめてありますので、こちらの画面を見ながら議論しましょう。」",
         "pitfall_warning": "コードの実行順序がバラバラになると再現性がなくなるため、最終的には上から順に再実行（Run All）して確認するルールが大切です。",
@@ -268,7 +288,8 @@ TECH_TERMS_DATA = [
         "term": "データクレンジング",
         "english_full": "Data Cleansing",
         "reading": "データ クレンジング",
-        "metaphor": "『料理の下ごしらえ（野菜の泥落とし）』。データ分析やAI学習の前に、全角半角の混在、表記ゆれ（例: `株式会社` と `(株)`）、空白、重複などのゴミデータを綺麗に整える作業。",
+        "metaphor": "『料理の下ごしらえ（野菜の泥落とし）』。全角・半角の混在や表記ゆれ（`株式会社`と`(株)`）、重複などのゴミデータを綺麗に掃除して整えること。",
+        "official_definition": "データベース内の誤記、表記ゆれ、重複、欠損値、フォーマット不一致などの不整合データを取り除き、正確で分析可能な品質に整備・標準化する前処理作業。",
         "business_impact": "「ゴミデータを入れたらゴミ結果しか出ない（Garbage In, Garbage Out）」。AIやデータ分析プロジェクトの成功の8割はこの前処理で決まる。",
         "meeting_phrase": "「AI導入の前に、まずは社内顧客データベースのデータクレンジングと名寄せを徹底的に行いましょう。」",
         "pitfall_warning": "地味で工数がかかるため過小評価されがちですが、ここをサボると後からシステム全体の再構築が必要になります。",
@@ -283,7 +304,8 @@ TECH_TERMS_DATA = [
         "term": "HTTPステータスコード (200, 404, 500)",
         "english_full": "HTTP Status Code",
         "reading": "エイチティーティーピー ステータスコード",
-        "metaphor": "Webサーバーからの『返事の手紙』。200＝「了解・成功」、404＝「そんなページ見つかりません（探した人のミス/リンク切れ）」、500＝「サーバーが故障・パンクしました（システム側のミス）」。",
+        "metaphor": "『Webサーバーからの3大返事』。200＝「OK！ページあります」、404＝「探した人のミス（URLが間違ってる/リンク切れ）」、500＝「店側のミス（サーバーが故障・パンク中）」。",
+        "official_definition": "Webブラウザからの要求（リクエスト）に対して、Webサーバーが処理結果の状態を3桁の数字で通知するレスポンスコード。",
         "business_impact": "障害発生時に「400番台（クライアント側の問題）」か「500番台（自社サーバー側の問題）」かを瞬時に見分けることで、原因特定と初動対応を迅速化できる。",
         "meeting_phrase": "「500エラー（Internal Server Error）が急増しているので、直近のデプロイをロールバック（巻き戻し）しましょう。」",
         "pitfall_warning": "404エラーはお客様が誤ったURLを入力した場合にも出るため、自社システム停止と混同しないよう切り分けが必要です。",
@@ -296,7 +318,8 @@ TECH_TERMS_DATA = [
         "term": "キャッシュ (Cache)",
         "english_full": "Cache",
         "reading": "キャッシュ",
-        "metaphor": "『よく使う書類をわざわざ奥の書庫に取りに行かず、デスクの上に置いておくこと』。一度読み込んだ画像やWebページを一時的に手元に保存しておき、2回目以降を爆速で表示する仕組み。",
+        "metaphor": "『よく使う書類を奥の倉庫に取りに行かず、デスクの上に置いておくこと』。一度読み込んだ画像やWebページを手元に保存しておき、2回目以降を爆速で開く仕組み。",
+        "official_definition": "一度取得・計算したデータを一時的に高速な記憶領域に保持しておき、次回以降の同一データへのアクセスを高速化・サーバー負荷軽減する仕組み。",
         "business_impact": "Webサイトの表示速度が劇的に速くなり、ユーザー離脱率を下げるとともに、サーバーの負荷と通信コストを大幅に削減できる。",
         "meeting_phrase": "「Webサイトのデザイン変更が反映されないお客様には、ブラウザのキャッシュクリア（Shift+F5）を案内してください。」",
         "pitfall_warning": "古いキャッシュが残り続けると、最新の価格や在庫情報が正しく表示されないトラブルが起きるため、適切な有効期限設定が必要です。",
@@ -309,7 +332,8 @@ TECH_TERMS_DATA = [
         "term": "Docker (コンテナ)",
         "english_full": "Docker Container",
         "reading": "ドッカー",
-        "metaphor": "『家具・家電付きの引っ越しコンテナ』。プログラムを動かすために必要な道具（OS設定、ライブラリ、コード）を丸ごと1つの箱に詰めることで、どのパソコンやクラウドへ運んでも一瞬で全く同じように動く。",
+        "metaphor": "『家具・家電付きの引っ越しコンテナ』。プログラムを動かすのに必要な道具を全部1つの箱に詰めることで、どのパソコンやクラウドに持って行っても一瞬で全く同じように動く。",
+        "official_definition": "アプリケーションとその実行に必要な環境（OSライブラリ、設定ファイル等）を1つの独立したコンテナとしてパッケージ化し、どのインフラ環境でも均一な動作を保証するコンテナ型仮想化技術。",
         "business_impact": "「開発者のPCでは動いたのに、本番サーバーでは動かない」というエンジニアあるあるのトラブルを完全撲滅し、開発・リリース速度を劇的に加速する。",
         "meeting_phrase": "「本番環境と開発環境の差異をなくすため、全サービスをDockerコンテナ化してデプロイを自動化しましょう。」",
         "pitfall_warning": "コンテナ自体の容量が肥大化しないよう、不要なファイルを含めないスリムな設計が推奨されます。",
@@ -319,9 +343,7 @@ TECH_TERMS_DATA = [
     }
 ]
 
-# ==========================================
-# 2. 会議・商談 リアル想定問答プラクティス
-# ==========================================
+# (想定問答、トレードオフ、チートシートデータは既存のものを引き継ぎ)
 MEETING_SCENARIOS_DATA = [
     {
         "category": "🤖 生成AIの業務導入",
@@ -357,9 +379,6 @@ MEETING_SCENARIOS_DATA = [
     }
 ]
 
-# ==========================================
-# 3. どっちを選ぶ？ 2択トレードオフ判断ドリル
-# ==========================================
 TRADEOFFS_DATA = [
     {
         "title": "社内文書検索AIの構築方式",
@@ -395,9 +414,6 @@ TRADEOFFS_DATA = [
     }
 ]
 
-# ==========================================
-# 4. 打ち合わせ直前 30秒チートシート
-# ==========================================
 CHEAT_SHEETS_DATA = [
     {
         "theme": "🤖 生成AI・LLM導入プロジェクトの打ち合わせ",
@@ -419,14 +435,10 @@ CHEAT_SHEETS_DATA = [
     }
 ]
 
-# ==========================================
-# データベース初期化＆シード処理 (Safe Upsert)
-# ==========================================
 def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # 1. 用語マスターテーブル
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS tech_terms (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -435,6 +447,7 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
         english_full TEXT,
         reading TEXT NOT NULL,
         metaphor TEXT NOT NULL,
+        official_definition TEXT,
         business_impact TEXT NOT NULL,
         meeting_phrase TEXT NOT NULL,
         pitfall_warning TEXT NOT NULL,
@@ -450,7 +463,15 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
     )
     ''')
 
-    # 2. 会議想定問答テーブル
+    # カラム存在確認 (official_definition)
+    cursor.execute("PRAGMA table_info(tech_terms)")
+    cols = [c[1] for c in cursor.fetchall()]
+    if "official_definition" not in cols:
+        try:
+            cursor.execute("ALTER TABLE tech_terms ADD COLUMN official_definition TEXT")
+        except Exception:
+            pass
+
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS meeting_scenarios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -468,7 +489,6 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
     )
     ''')
 
-    # 3. 2択トレードオフ判断テーブル
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS tradeoffs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -486,7 +506,6 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
     )
     ''')
 
-    # 4. チートシートテーブル
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS cheat_sheets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -497,7 +516,6 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
     )
     ''')
 
-    # 5. 学習時間ログテーブル
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS study_time_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -509,7 +527,6 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
     )
     ''')
 
-    # 6. 想起ログテーブル
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS study_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -521,7 +538,6 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
     )
     ''')
 
-    # 7. ユーザー設定テーブル (クラウド同期IDなど)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS user_state (
         key TEXT PRIMARY KEY,
@@ -532,16 +548,16 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
     now_iso = datetime.datetime.now().isoformat()
     today_iso = datetime.date.today().isoformat()
 
-    # シードデータ投入 (Safe Upsert)
     for item in TECH_TERMS_DATA:
         cursor.execute('''
-        INSERT INTO tech_terms (category, term, english_full, reading, metaphor, business_impact, meeting_phrase, pitfall_warning, quiz_sentence, quiz_options, correct_answer, next_review_date, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tech_terms (category, term, english_full, reading, metaphor, official_definition, business_impact, meeting_phrase, pitfall_warning, quiz_sentence, quiz_options, correct_answer, next_review_date, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(term) DO UPDATE SET
             category = excluded.category,
             english_full = excluded.english_full,
             reading = excluded.reading,
             metaphor = excluded.metaphor,
+            official_definition = excluded.official_definition,
             business_impact = excluded.business_impact,
             meeting_phrase = excluded.meeting_phrase,
             pitfall_warning = excluded.pitfall_warning,
@@ -550,7 +566,7 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
             correct_answer = excluded.correct_answer
         ''', (
             item["category"], item["term"], item["english_full"], item["reading"],
-            item["metaphor"], item["business_impact"], item["meeting_phrase"], item["pitfall_warning"],
+            item["metaphor"], item.get("official_definition", ""), item["business_impact"], item["meeting_phrase"], item["pitfall_warning"],
             item["quiz_sentence"], item["quiz_options"], item["correct_answer"],
             today_iso, now_iso
         ))
@@ -599,7 +615,7 @@ def init_and_seed_tech_master_db(db_path=TECH_DB_PATH):
 
     conn.commit()
     conn.close()
-    print("✅ TechMaster for Business database initialized and seeded successfully!")
+    print("✅ TechMaster database successfully seeded with definitions and metaphors!")
 
 if __name__ == "__main__":
     init_and_seed_tech_master_db()

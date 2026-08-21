@@ -484,28 +484,36 @@ if menu == "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)":
         st.markdown(front_card_html, unsafe_allow_html=True)
 
         if not st.session_state.srs_term_revealed:
-            if st.button("💡 答え・解説・神質問を見る (Enter / Space)", type="primary", use_container_width=True):
+            if st.button("💡 答え・例え話・公式定義・神質問を見る (Enter / Space)", type="primary", use_container_width=True):
                 st.session_state.srs_term_elapsed = max(0.1, round(time.time() - st.session_state.srs_term_start_time, 1))
                 st.session_state.srs_term_revealed = True
                 st.rerun()
         else:
-            # 裏側カード (Explanation & Metaphor & Phrases)
+            # 裏側カード (Explanation & Metaphor & Official Definition & Phrases)
+            official_def_section = ""
+            if card.get("official_definition") and str(card["official_definition"]).strip():
+                official_def_section = f"""<div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:4px solid #475569; padding:12px 16px; border-radius:8px; margin-bottom:16px;">
+<div style="font-size:0.85rem; font-weight:bold; color:#475569; margin-bottom:4px;">📖 正確な公式定義（打ち合わせ・資料用）:</div>
+<div style="font-size:1.0rem; line-height:1.6; color:#1e293b;">{card['official_definition']}</div>
+</div>"""
+
             back_card_html = f"""<div style="background:#fffbeb; border:1px solid #fef3c7; border-left:6px solid #f59e0b; padding:22px; border-radius:12px; margin-bottom:16px;">
 <h3 style="color:#b45309; margin-top:0; font-size:1.3rem;">💡 中学生でもわかる日常の例え話:</h3>
-<div style="font-size:1.15rem; line-height:1.7; color:#1e293b; font-weight:bold; background:#ffffff; padding:14px; border-radius:8px; border:1px solid #fde68a; margin-bottom:16px;">
+<div style="font-size:1.2rem; line-height:1.7; color:#1e293b; font-weight:bold; background:#ffffff; padding:16px; border-radius:8px; border:2px solid #fde68a; margin-bottom:16px;">
 {card['metaphor']}
 </div>
-<h4 style="color:#0369a1; margin-top:0;">👔 ビジネスインパクト（なぜ会社に必要なのか？）:</h4>
-<div style="font-size:1.05rem; line-height:1.6; color:#334155; margin-bottom:16px;">
-{card['business_impact']}
+{official_def_section}
+<div style="background:#eff6ff; border:1px solid #bfdbfe; border-left:4px solid #2563eb; padding:12px 16px; border-radius:8px; margin-bottom:16px;">
+<div style="font-size:0.85rem; font-weight:bold; color:#1d4ed8; margin-bottom:4px;">👔 ビジネスインパクト（なぜ会社に必要なのか？）:</div>
+<div style="font-size:1.0rem; line-height:1.6; color:#1e293b;">{card['business_impact']}</div>
 </div>
-<h4 style="color:#15803d; margin-top:0;">🗣️ 打ち合わせでそのまま使える「神質問フレーズ」:</h4>
-<div style="font-size:1.05rem; line-height:1.6; color:#14532d; background:#f0fdf4; padding:12px 16px; border-radius:8px; border:1px solid #bbf7d0; font-weight:bold; margin-bottom:16px;">
-{card['meeting_phrase']}
+<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #16a34a; padding:12px 16px; border-radius:8px; margin-bottom:16px;">
+<div style="font-size:0.85rem; font-weight:bold; color:#15803d; margin-bottom:4px;">🗣️ 打ち合わせでそのまま使える「神質問フレーズ」:</div>
+<div style="font-size:1.05rem; line-height:1.6; color:#14532d; font-weight:bold;">{card['meeting_phrase']}</div>
 </div>
-<h4 style="color:#dc2626; margin-top:0;">⚠️ 地雷注意点（知ったかぶりNGポイント）:</h4>
-<div style="font-size:0.95rem; line-height:1.6; color:#991b1b;">
-{card['pitfall_warning']}
+<div style="background:#fef2f2; border:1px solid #fecaca; border-left:4px solid #dc2626; padding:12px 16px; border-radius:8px;">
+<div style="font-size:0.85rem; font-weight:bold; color:#b91c1c; margin-bottom:4px;">⚠️ 地雷注意点（知ったかぶりNGポイント）:</div>
+<div style="font-size:0.95rem; line-height:1.6; color:#991b1b;">{card['pitfall_warning']}</div>
 </div>
 </div>"""
             st.markdown(back_card_html, unsafe_allow_html=True)
