@@ -825,17 +825,27 @@ elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
     st.caption("AI、DX、セキュリティ、Python、Web基礎の全分野からランダム出題され、実務の打ち合わせ現場での『瞬時の引き出し力』を極限まで高めます。")
 
     conn = sqlite3.connect(TECH_DB_PATH)
-    df_all = pd.read_sql_query("SELECT * FROM tech_terms", conn).sample(frac=1, random_state=int(time.time()) % 100)
+    df_all_terms = pd.read_sql_query("SELECT * FROM tech_terms", conn)
     conn.close()
 
-    if "il_idx" not in st.session_state or st.session_state.il_idx >= len(df_all):
+    # セッション内にシャッフルされたID順序を固定保持（Rerun時の問題すり替わりを防止）
+    if "il_term_ids" not in st.session_state or len(st.session_state.il_term_ids) != len(df_all_terms):
+        st.session_state.il_term_ids = df_all_terms["id"].sample(frac=1, random_state=int(time.time()) % 1000).tolist()
         st.session_state.il_idx = 0
         st.session_state.il_answered = False
+        st.session_state.il_selected = None
 
-    il_card = df_all.iloc[st.session_state.il_idx]
+    if st.session_state.il_idx >= len(st.session_state.il_term_ids):
+        st.session_state.il_term_ids = df_all_terms["id"].sample(frac=1, random_state=int(time.time()) % 1000).tolist()
+        st.session_state.il_idx = 0
+        st.session_state.il_answered = False
+        st.session_state.il_selected = None
+
+    curr_term_id = st.session_state.il_term_ids[st.session_state.il_idx]
+    il_card = df_all_terms[df_all_terms["id"] == curr_term_id].iloc[0]
     
-    st.caption(f"交差シャッフル中：残り {len(df_all) - st.session_state.il_idx} / {len(df_all)} 語")
-    st.progress((st.session_state.il_idx + 1) / len(df_all))
+    st.caption(f"交差シャッフル中：残り {len(st.session_state.il_term_ids) - st.session_state.il_idx} / {len(st.session_state.il_term_ids)} 語")
+    st.progress((st.session_state.il_idx + 1) / len(st.session_state.il_term_ids))
 
     il_q_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #8b5cf6; padding:24px; border-radius:12px; margin-bottom:16px;">
 <div style="font-size:0.9rem; color:#8b5cf6; font-weight:bold; margin-bottom:6px;">🏷️ {il_card['category']}</div>
@@ -848,29 +858,32 @@ elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
 </div>"""
     st.markdown(il_q_html, unsafe_allow_html=True)
 
-    opts = [o.strip() for o in il_card["quiz_options"].split(",")]
+    opts = [o.strip() for o in str(il_card["quiz_options"]).split(",") if o.strip()]
+    correct_ans = str(il_card["correct_answer"]).strip()
     
-    if not st.session_state.il_answered:
+    if not st.session_state.get("il_answered", False):
         st.write("**正しい用語を選択してください：**")
         o_cols = st.columns(len(opts))
         for i, opt in enumerate(opts):
             with o_cols[i]:
-                if st.button(opt, key=f"il_btn_{i}_{st.session_state.il_idx}", use_container_width=True):
+                if st.button(opt, key=f"il_btn_{il_card['id']}_{i}", use_container_width=True):
                     st.session_state.il_selected = opt
                     st.session_state.il_answered = True
                     st.rerun()
     else:
-        is_right = (st.session_state.il_selected == il_card["correct_answer"])
+        user_choice = str(st.session_state.get("il_selected", "")).strip()
+        is_right = (user_choice.lower() == correct_ans.lower()) or (user_choice in correct_ans) or (correct_ans in user_choice)
         bg = "#f0fdf4" if is_right else "#fef2f2"
         bdr = "#16a34a" if is_right else "#dc2626"
-        res_t = "🌟 正解です！" if is_right else "⚠️ 不正解"
+        res_t = "🌟 正解です！" if is_right else "⚠️ 惜しい！別の用語です。"
         
         il_res_html = f"""<div style="background:{bg}; border:2px solid {bdr}; padding:20px; border-radius:10px; margin-bottom:16px;">
 <div style="font-size:1.2rem; font-weight:bold; color:{bdr}; margin-bottom:6px;">{res_t}</div>
 <div style="font-size:1.05rem; color:#334155;">
-あなたの回答: <b>{st.session_state.il_selected}</b> ｜ 正解: <b style="color:#15803d;">{il_card['correct_answer']}</b>
+あなたの回答: <b>{user_choice}</b> ｜ 正解: <b style="color:#15803d;">{correct_ans}</b> ({il_card['english_full']})
 </div>
-<div style="font-size:0.95rem; color:#1e293b; margin-top:8px;">
+<hr style="border:none; border-top:1px solid #e2e8f0; margin:10px 0;">
+<div style="font-size:0.95rem; color:#1e293b; line-height:1.6;">
 👔 <b>ビジネスインパクト:</b> {il_card['business_impact']}
 </div>
 </div>"""
@@ -879,9 +892,11 @@ elif menu == "🔀 5大分野 インターリービング実戦シャッフル":
         record_tech_study_time(2.0, "interleaving", 1)
 
         if st.button("⭕️ 次のシャッフル問題へ ➡️", type="primary", use_container_width=True):
-            st.session_state.il_idx = (st.session_state.il_idx + 1) % len(df_all)
+            st.session_state.il_idx += 1
             st.session_state.il_answered = False
+            st.session_state.il_selected = None
             st.rerun()
+
 
 # ==========================================
 # 7. 📊 学習進捗ダッシュボード ＆ 💾 バックアップ
