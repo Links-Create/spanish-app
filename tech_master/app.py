@@ -6,8 +6,11 @@ from datetime import date, timedelta
 import json
 import time
 import os
+import io
+import contextlib
 import urllib.request
 import hashlib
+import difflib
 
 # ==========================================
 # ページ基本設定
@@ -380,6 +383,7 @@ with st.sidebar.expander("☁️ 端末クラウド自動同期 (PC ⇄ スマ�
 menu = st.sidebar.radio(
     "🧭 学習メニュー",
     [
+        "💻 Python 実践コード入力テスト道場 (NEW!)",
         "🐍 Python 超入門〜実務マスター (初心者特化)",
         "🗂️ 例え話で学ぶ！用語 Smart SRS (忘却曲線)",
         "🛡️ 会議・商談 リアル想定問答プラクティス",
@@ -420,9 +424,163 @@ header_html = f"""<div style="background:#ffffff; border:1px solid #e2e8f0; bord
 st.markdown(header_html, unsafe_allow_html=True)
 
 # ==========================================
+# 0. 💻 Python 実践コード入力テスト道場
+# ==========================================
+if menu == "💻 Python 実践コード入力テスト道場 (NEW!)":
+    st.title("💻 Python 実践コード入力テスト道場 (初級〜実務)")
+    st.caption("実際にキーボードでPythonの基本コードを書いて、実行＆判定する実践トレーニングです。穴埋め・コード入力でプログラミングの指の記憶を定着させます。")
+
+    conn = sqlite3.connect(TECH_DB_PATH)
+    try:
+        df_code_tests = pd.read_sql_query("SELECT * FROM python_code_tests", conn)
+    except Exception:
+        import seed_python_code_tests
+        seed_python_code_tests.init_and_seed_code_tests(TECH_DB_PATH)
+        df_code_tests = pd.read_sql_query("SELECT * FROM python_code_tests", conn)
+    conn.close()
+
+    if len(df_code_tests) == 0:
+        st.info("コードテストデータを読み込み中です。少々お待ちください。")
+    else:
+        lvl_list = ["🌟 全問にチャレンジ (推奨)"] + list(df_code_tests["level"].unique())
+        sel_lvl = st.selectbox("🎯 レベルを選択してください：", lvl_list, key="code_test_level_sel")
+
+        if sel_lvl == "🌟 全問にチャレンジ (推奨)":
+            test_df = df_code_tests.sort_values("id")
+        else:
+            test_df = df_code_tests[df_code_tests["level"] == sel_lvl].sort_values("id")
+
+        if "ct_idx" not in st.session_state or st.session_state.ct_idx >= len(test_df):
+            st.session_state.ct_idx = 0
+            st.session_state.ct_submitted = False
+            st.session_state.ct_user_code = ""
+
+        q_card = test_df.iloc[st.session_state.ct_idx]
+
+        st.caption(f"コードテスト中：残り {len(test_df) - st.session_state.ct_idx} / {len(test_df)} 問（対象全 {len(test_df)} 問）")
+        st.progress((st.session_state.ct_idx + 1) / len(test_df))
+
+        if "ct_start_time" not in st.session_state or st.session_state.get("ct_current_id") != q_card["id"]:
+            st.session_state.ct_start_time = time.time()
+            st.session_state.ct_current_id = int(q_card["id"])
+            st.session_state.ct_submitted = False
+            st.session_state.ct_user_code = ""
+
+        q_html = f"""<div style="background:#ffffff; border:2px solid #e2e8f0; border-top:6px solid #3b82f6; padding:22px; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:16px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+<span style="background:#dbeafe; color:#1e40af; padding:4px 12px; border-radius:16px; font-size:0.85rem; font-weight:bold;">{q_card['level']}</span>
+<span style="font-size:0.9rem; color:#64748b;">問題 {st.session_state.ct_idx + 1} / {len(test_df)}</span>
+</div>
+<h3 style="color:#0f172a; margin-top:0; font-size:1.35rem;">{q_card['title']}</h3>
+<div style="font-size:1.15rem; font-weight:bold; color:#1e293b; line-height:1.6; background:#f8fafc; padding:16px; border-radius:8px; border-left:4px solid #3b82f6; margin-bottom:12px;">
+📝 <b>お題:</b> {q_card['instruction']}
+</div>
+</div>"""
+        st.markdown(q_html, unsafe_allow_html=True)
+
+        with st.expander("💡 ヒント（クリックで開く）"):
+            st.info(q_card["hint"])
+
+        with st.form(key=f"ct_form_{q_card['id']}"):
+            u_code = st.text_area(
+                "⌨️ Pythonコードを入力してください:",
+                value=st.session_state.get("ct_user_code", ""),
+                height=100,
+                placeholder="ここにコードを入力...",
+                key=f"code_input_field_{q_card['id']}"
+            )
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                b_check = st.form_submit_button("🔥 判定＆実行する", type="primary", use_container_width=True)
+            with c2:
+                b_clear = st.form_submit_button("🧹 クリア", use_container_width=True)
+
+        if b_clear:
+            st.session_state.ct_user_code = ""
+            st.session_state.ct_submitted = False
+            st.rerun()
+
+        if b_check:
+            st.session_state.ct_user_code = u_code
+            st.session_state.ct_submitted = True
+            st.session_state.ct_elapsed = max(0.1, round(time.time() - st.session_state.ct_start_time, 1))
+            st.rerun()
+
+        if st.session_state.get("ct_submitted", False):
+            user_raw = st.session_state.get("ct_user_code", "").strip()
+            target_raw = str(q_card["canonical_code"]).strip()
+
+            def normalize_code(c):
+                lines = [l.strip() for l in c.strip().split("\n") if l.strip()]
+                norm = "\n".join(lines).replace("'", '"').replace(" ", "")
+                return norm
+
+            is_correct = (normalize_code(user_raw) == normalize_code(target_raw))
+
+            # 実際のPythonコード実行（安全なキャプチャ）
+            exec_output = ""
+            exec_error = ""
+            try:
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    # 安全なローカルスコープで実行
+                    test_scope = {
+                        "name": "太郎",
+                        "first_name": "太郎",
+                        "last_name": "山田",
+                        "score": 85,
+                        "fruits": ["りんご", "バナナ"],
+                        "items": ["商品A", "商品B", "商品C"],
+                        "user": {"name": "田中", "age": 30},
+                        "numbers": [1, 2, 3, 4, 5],
+                        "calc": lambda: 100
+                    }
+                    exec(user_raw, test_scope)
+                exec_output = buffer.getvalue().strip()
+            except Exception as e:
+                exec_error = str(e)
+
+            res_bg = "#f0fdf4" if is_correct else "#fef2f2"
+            res_bdr = "#16a34a" if is_correct else "#dc2626"
+            res_title = "🎉 完璧！正解です！" if is_correct else "⚠️ 惜しい！コードを確認しましょう。"
+
+            res_html = f"""<div style="background:{res_bg}; border:2px solid {res_bdr}; padding:20px; border-radius:10px; margin-bottom:16px;">
+<div style="font-size:1.25rem; font-weight:bold; color:{res_bdr}; margin-bottom:8px;">{res_title}</div>
+<div style="margin-bottom:8px; font-size:1.0rem; color:#1e293b;">
+<b>あなたのコード:</b>
+<pre style="background:#ffffff; border:1px solid #cbd5e1; padding:10px; border-radius:6px; font-family:monospace; margin:4px 0;">{user_raw if user_raw else '(未入力)'}</pre>
+</div>
+<div style="margin-bottom:8px; font-size:1.0rem; color:#1e293b;">
+<b>模範正解コード:</b>
+<pre style="background:#f0fdf4; border:1px solid #86efac; color:#15803d; padding:10px; border-radius:6px; font-family:monospace; font-weight:bold; margin:4px 0;">{target_raw}</pre>
+</div>
+<hr style="border:none; border-top:1px solid #e2e8f0; margin:10px 0;">
+<div style="font-size:0.95rem; color:#334155; line-height:1.6;">
+💡 <b>解説:</b> {q_card['explanation']}
+</div>
+</div>"""
+            st.markdown(res_html, unsafe_allow_html=True)
+
+            if exec_output:
+                st.markdown(f"**▶️ 実行結果（出力）:**")
+                st.code(exec_output, language="text")
+            elif exec_error:
+                st.markdown(f"**⚠️ 実行時エラー:**")
+                st.error(exec_error)
+
+            record_tech_study_time(float(st.session_state.get("ct_elapsed", 4.0)), "code_test", 1)
+
+            if st.button("⭕️ 次のコード問題へ進む ➡️", type="primary", use_container_width=True):
+                st.session_state.ct_idx = (st.session_state.ct_idx + 1) % len(test_df)
+                st.session_state.ct_submitted = False
+                st.session_state.ct_user_code = ""
+                st.session_state.ct_start_time = time.time()
+                st.rerun()
+
+# ==========================================
 # 0. 🐍 Python 超入門〜実務マスター (初心者特化)
 # ==========================================
-if menu == "🐍 Python 超入門〜実務マスター (初心者特化)":
+elif menu == "🐍 Python 超入門〜実務マスター (初心者特化)":
     st.title("🐍 Python 超入門〜実務マスター (初心者特化カリキュラム)")
     st.caption("プログラミング完全初心者・文系ビジネスパーソン向け！変数やデータ型などの最初の一歩から、Excel自動化・Pandas・スクレイピングまで段階別にマスターできます。")
 
